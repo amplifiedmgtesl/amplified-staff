@@ -81,7 +81,7 @@ export default function DashboardPage() {
                       <td>{t.workDate}</td>
                       <td>{t.jobName || "—"}</td>
                       <td>{t.position || "—"}</td>
-                      <td>{(t.regularHours + t.overtimeHours).toFixed(1)}</td>
+                      <td>{t.totalHours.toFixed(1)}</td>
                       <td>
                         <span className={`badge ${t.status === "approved" ? "badge-green" : t.status === "rejected" ? "badge-red" : "badge-blue"}`}>
                           {t.status}
