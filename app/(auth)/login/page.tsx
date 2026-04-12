@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { getProfile } from "@/lib/db";
+import { getProfile, upsertProfile } from "@/lib/db";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -23,14 +23,30 @@ export default function LoginPage() {
       return;
     }
 
-    // Check role — staff portal only allows role='staff'
-    // If no profile exists yet, allow through so they can set up their profile
-    const profile = await getProfile(data.user.id);
+    const user = data.user;
+    const profile = await getProfile(user.id);
+
+    // If a profile exists but the role is admin, block them
     if (profile && profile.role !== "staff") {
       await supabase.auth.signOut();
       setError("This portal is for staff only. Please use the Operations Suite to sign in.");
       setLoading(false);
       return;
+    }
+
+    // No profile yet — create one with role='staff'
+    if (!profile) {
+      await upsertProfile({
+        id: user.id,
+        role: "staff",
+        employeeKey: null,
+        fullName: "",
+        email: user.email ?? "",
+        phone: "",
+        address: "",
+        city: "",
+        state: "",
+      });
     }
 
     window.location.href = "/dashboard";
