@@ -2,17 +2,20 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 const nav = [
-  ["/dashboard", "🏠", "Dashboard"],
-  ["/schedule", "📅", "My Schedule"],
-  ["/timesheets", "⏱️", "My Timesheets"],
-  ["/timesheets/new", "➕", "Submit Timesheet"],
-  ["/profile", "👤", "My Profile"],
-] as const;
+  { href: "/dashboard",      icon: "🏠", label: "Home" },
+  { href: "/schedule",       icon: "📅", label: "Schedule" },
+  { href: "/timesheets",     icon: "⏱️", label: "Timesheets" },
+  { href: "/timesheets/new", icon: "➕", label: "Submit" },
+  { href: "/profile",        icon: "👤", label: "Profile" },
+];
 
 export function AppShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  const pathname = usePathname();
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     window.location.href = "/login";
@@ -20,6 +23,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
 
   return (
     <div className="layout">
+      {/* ── Desktop sidebar ── */}
       <aside className="sidebar">
         <div style={{ textAlign: "center", marginBottom: 20 }}>
           <img
@@ -31,10 +35,14 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
           <div className="brand-sub">Staff Portal</div>
         </div>
 
-        {nav.map(([href, icon, label]) => (
-          <Link key={href} href={href} className="nav-link">
+        {nav.map(({ href, icon, label }) => (
+          <Link
+            key={href}
+            href={href}
+            className={`nav-link${pathname === href || (href !== "/dashboard" && pathname.startsWith(href)) ? " active" : ""}`}
+          >
             <span style={{ fontSize: 18, marginRight: 10 }}>{icon}</span>
-            {label}
+            {label === "Submit" ? "Submit Timesheet" : `My ${label === "Home" ? "" : label}`.trim() || "Dashboard"}
           </Link>
         ))}
 
@@ -48,9 +56,15 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         </div>
       </aside>
 
+      {/* ── Main content ── */}
       <main className="main">
         <div className="topbar">
-          <img src="/branding/client-logo.png" alt="Logo" className="header-logo" onError={(e) => (e.currentTarget.style.display = "none")} />
+          <img
+            src="/branding/client-logo.png"
+            alt="Logo"
+            className="header-logo"
+            onError={(e) => (e.currentTarget.style.display = "none")}
+          />
           <div>
             <h1 className="page-title">{title}</h1>
             {subtitle && <div className="page-subtitle">{subtitle}</div>}
@@ -58,6 +72,23 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         </div>
         {children}
       </main>
+
+      {/* ── Mobile bottom nav ── */}
+      <nav className="bottom-nav">
+        {nav.map(({ href, icon, label }) => {
+          const isActive = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`bottom-nav-link${isActive ? " active" : ""}`}
+            >
+              <span className="nav-icon">{icon}</span>
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }

@@ -39,7 +39,7 @@ export default function TimesheetsPage() {
         ) : timesheets.length === 0 ? (
           <p className="muted">No timesheets yet. <Link href="/timesheets/new" style={{ color: "var(--gold-dark)" }}>Submit your first one.</Link></p>
         ) : (
-          <table>
+          <div className="table-scroll"><table>
             <thead>
               <tr>
                 <th>Date</th>
@@ -82,7 +82,7 @@ export default function TimesheetsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
     </AppShell>

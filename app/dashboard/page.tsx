@@ -95,7 +95,7 @@ export default function DashboardPage() {
             {recent.length === 0 ? (
               <p className="muted">No timesheets submitted yet.</p>
             ) : (
-              <table>
+              <div className="table-scroll"><table>
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -120,7 +120,7 @@ export default function DashboardPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </div>
         </div>
