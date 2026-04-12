@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
-import { getProfile, upsertStaffTimesheet } from "@/lib/db";
+import { getProfile, getJobSheets, upsertStaffTimesheet } from "@/lib/db";
+import type { JobSheetOption } from "@/lib/db";
 
 const POSITIONS = [
   "Stagehand","Rigger","Rigger 1","Audio Technician","Lighting Technician",
@@ -45,15 +46,23 @@ function calcHours(timeIn1: string, timeOut1: string, timeIn2: string, timeOut2:
   return { totalHours, stdHours, otHours, dtHours };
 }
 
+function formatJobSheetLabel(js: JobSheetOption) {
+  const parts = [js.date, js.client, js.eventName, js.venue].filter(Boolean);
+  return parts.join(" — ");
+}
+
 export default function NewTimesheetPage() {
   const router = useRouter();
   const today = new Date().toISOString().split("T")[0];
   const times = timeOptions();
 
+  const [jobSheets, setJobSheets] = useState<JobSheetOption[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<JobSheetOption | null>(null);
   const [profile, setProfile] = useState<{ firstName: string; lastName: string; phone: string; email: string } | null>(null);
+  const [loadingSheets, setLoadingSheets] = useState(true);
+
   const [form, setForm] = useState({
     workDate: today,
-    jobName: "",
     position: "Stagehand",
     timeIn1: "",
     timeOut1: "",
@@ -69,7 +78,7 @@ export default function NewTimesheetPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const p = await getProfile(user.id);
+      const [p, sheets] = await Promise.all([getProfile(user.id), getJobSheets()]);
       if (p) {
         const parts = p.fullName.trim().split(" ");
         setProfile({
@@ -79,9 +88,17 @@ export default function NewTimesheetPage() {
           email: p.email,
         });
       }
+      setJobSheets(sheets);
+      setLoadingSheets(false);
     }
     load();
   }, []);
+
+  function handleSheetSelect(id: string) {
+    const sheet = jobSheets.find((s) => s.id === id) ?? null;
+    setSelectedSheet(sheet);
+    if (sheet?.date) setForm((f) => ({ ...f, workDate: sheet.date }));
+  }
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -89,24 +106,24 @@ export default function NewTimesheetPage() {
   const { totalHours, stdHours, otHours, dtHours } = calcHours(
     form.timeIn1, form.timeOut1, form.timeIn2, form.timeOut2, Number(form.lunchMinutes) || 0
   );
+  const stdRate = 35, otRate = 52.5, dtRate = 70;
+  const totalPay = +(stdHours * stdRate + otHours * otRate + dtHours * dtRate).toFixed(2);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!selectedSheet) { setError("Please select a job sheet."); return; }
     setError(null);
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const stdRate = 35, otRate = 52.5, dtRate = 70;
-      const totalPay = +(stdHours * stdRate + otHours * otRate + dtHours * dtRate).toFixed(2);
-
       await upsertStaffTimesheet({
         id: `sts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId: user.id,
-        jobSheetId: null,
         timesheetId: null,
-        jobName: form.jobName,
+        jobSheetId: selectedSheet.id,
+        jobName: [selectedSheet.client, selectedSheet.eventName].filter(Boolean).join(" — "),
         workDate: form.workDate,
         position: form.position,
         firstName: profile?.firstName ?? "",
@@ -148,6 +165,38 @@ export default function NewTimesheetPage() {
           <h2 className="section-title">Timesheet Entry</h2>
           <div className="grid">
 
+            {/* Job Sheet selector */}
+            <div>
+              <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>
+                Job / Event *
+              </label>
+              {loadingSheets ? (
+                <p className="muted" style={{ fontSize: 13 }}>Loading jobs…</p>
+              ) : jobSheets.length === 0 ? (
+                <p className="muted" style={{ fontSize: 13 }}>No job sheets available. Contact your administrator.</p>
+              ) : (
+                <select
+                  value={selectedSheet?.id ?? ""}
+                  onChange={(e) => handleSheetSelect(e.target.value)}
+                  required
+                >
+                  <option value="">— Select a job —</option>
+                  {jobSheets.map((s) => (
+                    <option key={s.id} value={s.id}>{formatJobSheetLabel(s)}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Selected job details */}
+            {selectedSheet && (
+              <div style={{ background: "var(--cream)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
+                <div><strong>{selectedSheet.client}</strong> — {selectedSheet.eventName}</div>
+                <div className="muted">{selectedSheet.venue}{selectedSheet.cityState ? `, ${selectedSheet.cityState}` : ""}</div>
+                {selectedSheet.callTime && <div className="muted">Call time: {selectedSheet.callTime}</div>}
+              </div>
+            )}
+
             <div className="grid2">
               <div>
                 <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Work Date *</label>
@@ -159,11 +208,6 @@ export default function NewTimesheetPage() {
                   {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
-            </div>
-
-            <div>
-              <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Job / Event Name</label>
-              <input value={form.jobName} onChange={set("jobName")} placeholder="e.g. Taylor Swift — Allegiant Stadium" />
             </div>
 
             <div>
@@ -223,7 +267,7 @@ export default function NewTimesheetPage() {
                 </div>
                 <div className="metric-card">
                   <div className="metric-label">Est. Pay</div>
-                  <div className="metric-value">${(stdHours * 35 + otHours * 52.5 + dtHours * 70).toFixed(2)}</div>
+                  <div className="metric-value">${totalPay.toFixed(2)}</div>
                 </div>
               </div>
             )}
@@ -236,7 +280,9 @@ export default function NewTimesheetPage() {
             {error && <div style={{ color: "#c0392b", fontSize: 14 }}>{error}</div>}
 
             <div className="action-row">
-              <button type="submit" disabled={saving}>{saving ? "Submitting…" : "Submit Timesheet"}</button>
+              <button type="submit" disabled={saving || !selectedSheet}>
+                {saving ? "Submitting…" : "Submit Timesheet"}
+              </button>
               <button type="button" className="secondary" onClick={() => router.back()}>Cancel</button>
             </div>
           </div>

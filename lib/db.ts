@@ -1,6 +1,37 @@
 import { supabase } from "./supabase/client";
 import type { Profile, StaffTimesheet } from "./types";
 
+export interface JobSheetOption {
+  id: string;
+  title: string;
+  client: string;
+  eventName: string;
+  venue: string;
+  cityState: string;
+  date: string;
+  callTime: string;
+}
+
+// ── Job Sheets (read-only for staff) ─────────────────────────────────────────
+
+export async function getJobSheets(): Promise<JobSheetOption[]> {
+  const { data, error } = await supabase
+    .from("job_sheets")
+    .select("id, title, client, event_name, venue, city_state, date, call_time")
+    .order("date", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    title: r.title ?? "",
+    client: r.client ?? "",
+    eventName: r.event_name ?? "",
+    venue: r.venue ?? "",
+    cityState: r.city_state ?? "",
+    date: r.date ?? "",
+    callTime: r.call_time ?? "",
+  }));
+}
+
 // ── Profile ───────────────────────────────────────────────────────────────────
 
 export async function getProfile(userId: string): Promise<Profile | null> {
