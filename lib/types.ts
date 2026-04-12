@@ -1,3 +1,16 @@
+export interface ScheduledJob {
+  jobSheetId: string;
+  client: string;
+  eventName: string;
+  venue: string;
+  cityState: string;
+  date: string;
+  callTime: string;
+  notes: string;
+  role: string;
+  confirmed: boolean;
+}
+
 export interface Profile {
   id: string;
   role: "staff" | "admin";

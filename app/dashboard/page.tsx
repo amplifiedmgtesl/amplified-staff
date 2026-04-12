@@ -3,14 +3,17 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
-import { getProfile, getMyTimesheets } from "@/lib/db";
-import type { Profile, StaffTimesheet } from "@/lib/types";
+import { getProfile, getMyTimesheets, getMySchedule } from "@/lib/db";
+import type { Profile, ScheduledJob, StaffTimesheet } from "@/lib/types";
 import Link from "next/link";
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [timesheets, setTimesheets] = useState<StaffTimesheet[]>([]);
+  const [upcoming, setUpcoming] = useState<ScheduledJob[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const today = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
     async function load() {
@@ -19,6 +22,11 @@ export default function DashboardPage() {
       const [p, ts] = await Promise.all([getProfile(user.id), getMyTimesheets(user.id)]);
       setProfile(p);
       setTimesheets(ts);
+      const email = p?.email || user.email || "";
+      if (email) {
+        const jobs = await getMySchedule(email);
+        setUpcoming(jobs.filter((j) => j.date >= today).slice(0, 3));
+      }
       setLoading(false);
     }
     load();
@@ -56,6 +64,28 @@ export default function DashboardPage() {
               <div className="metric-value">{approved}</div>
             </div>
           </div>
+
+          {upcoming.length > 0 && (
+            <div className="card">
+              <div className="action-row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Upcoming Jobs</h2>
+                <Link href="/schedule" style={{ fontSize: 13, color: "var(--gold-dark)" }}>View all</Link>
+              </div>
+              <div className="grid">
+                {upcoming.map((job) => (
+                  <div key={job.jobSheetId} style={{ background: "var(--cream)", border: "1px solid var(--line)", borderLeft: "3px solid var(--gold)", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{job.client}{job.eventName ? ` — ${job.eventName}` : ""}</div>
+                    <div className="muted" style={{ fontSize: 13 }}>{job.venue}{job.cityState ? `, ${job.cityState}` : ""}</div>
+                    <div style={{ fontSize: 13, marginTop: 6, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                      <span>📅 {new Date(job.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                      {job.callTime && <span>⏰ {job.callTime}</span>}
+                      {job.role && <span>🎭 {job.role}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="card">
             <div className="action-row" style={{ justifyContent: "space-between", marginBottom: 16 }}>

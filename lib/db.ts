@@ -1,5 +1,5 @@
 import { supabase } from "./supabase/client";
-import type { Profile, StaffTimesheet } from "./types";
+import type { Profile, ScheduledJob, StaffTimesheet } from "./types";
 
 export interface JobSheetOption {
   id: string;
@@ -10,6 +10,41 @@ export interface JobSheetOption {
   cityState: string;
   date: string;
   callTime: string;
+}
+
+// ── My Schedule (jobs the logged-in user is assigned to) ─────────────────────
+
+export async function getMySchedule(userEmail: string): Promise<ScheduledJob[]> {
+  const { data, error } = await supabase
+    .from("job_sheet_workers")
+    .select(`
+      role,
+      confirmed,
+      job_sheets (
+        id, client, event_name, venue, city_state, date, call_time, notes
+      )
+    `)
+    .eq("email", userEmail);
+  if (error) throw error;
+  return (data ?? [])
+    .map((r: any) => {
+      const js = r.job_sheets;
+      if (!js) return null;
+      return {
+        jobSheetId: js.id,
+        client: js.client ?? "",
+        eventName: js.event_name ?? "",
+        venue: js.venue ?? "",
+        cityState: js.city_state ?? "",
+        date: js.date ?? "",
+        callTime: js.call_time ?? "",
+        notes: js.notes ?? "",
+        role: r.role ?? "",
+        confirmed: r.confirmed ?? false,
+      } as ScheduledJob;
+    })
+    .filter((j): j is ScheduledJob => j !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ── Job Sheets (read-only for staff) ─────────────────────────────────────────

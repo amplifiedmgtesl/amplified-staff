@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase/client";
 
 const nav = [
   ["/dashboard", "🏠", "Dashboard"],
+  ["/schedule", "📅", "My Schedule"],
   ["/timesheets", "⏱️", "My Timesheets"],
   ["/timesheets/new", "➕", "Submit Timesheet"],
   ["/profile", "👤", "My Profile"],
