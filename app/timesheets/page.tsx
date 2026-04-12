@@ -47,9 +47,11 @@ export default function TimesheetsPage() {
                 <th>Position</th>
                 <th>Time In</th>
                 <th>Time Out</th>
-                <th>Break</th>
-                <th>Reg Hrs</th>
-                <th>OT Hrs</th>
+                <th>Lunch</th>
+                <th>Std</th>
+                <th>OT</th>
+                <th>DT</th>
+                <th>Total</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -60,11 +62,13 @@ export default function TimesheetsPage() {
                   <td>{t.workDate}</td>
                   <td>{t.jobName || "—"}</td>
                   <td>{t.position || "—"}</td>
-                  <td>{t.timeIn || "—"}</td>
-                  <td>{t.timeOut || "—"}</td>
-                  <td>{t.breakMinutes ? `${t.breakMinutes}m` : "—"}</td>
-                  <td>{t.regularHours.toFixed(1)}</td>
-                  <td>{t.overtimeHours > 0 ? t.overtimeHours.toFixed(1) : "—"}</td>
+                  <td>{t.timeIn1 || "—"}</td>
+                  <td>{t.timeOut1 || "—"}</td>
+                  <td>{t.lunchMinutes ? `${t.lunchMinutes}m` : "—"}</td>
+                  <td>{t.stdHours.toFixed(1)}</td>
+                  <td>{t.otHours > 0 ? t.otHours.toFixed(1) : "—"}</td>
+                  <td>{t.dtHours > 0 ? t.dtHours.toFixed(1) : "—"}</td>
+                  <td><strong>{t.totalHours.toFixed(1)}</strong></td>
                   <td>
                     <span className={`badge ${t.status === "approved" ? "badge-green" : t.status === "rejected" ? "badge-red" : "badge-blue"}`}>
                       {t.status}

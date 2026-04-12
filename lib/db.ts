@@ -18,11 +18,11 @@ export async function upsertProfile(profile: Profile): Promise<void> {
   if (error) throw error;
 }
 
-// ── Staff Timesheets ──────────────────────────────────────────────────────────
+// ── Staff Timesheets (stored in timesheet_entries with user_id set) ───────────
 
 export async function getMyTimesheets(userId: string): Promise<StaffTimesheet[]> {
   const { data, error } = await supabase
-    .from("staff_timesheets")
+    .from("timesheet_entries")
     .select("*")
     .eq("user_id", userId)
     .order("work_date", { ascending: false });
@@ -31,12 +31,14 @@ export async function getMyTimesheets(userId: string): Promise<StaffTimesheet[]>
 }
 
 export async function upsertStaffTimesheet(entry: StaffTimesheet): Promise<void> {
-  const { error } = await supabase.from("staff_timesheets").upsert(staffTimesheetToRow(entry));
+  const { error } = await supabase
+    .from("timesheet_entries")
+    .upsert(staffTimesheetToRow(entry));
   if (error) throw error;
 }
 
 export async function deleteStaffTimesheet(id: string): Promise<void> {
-  const { error } = await supabase.from("staff_timesheets").delete().eq("id", id);
+  const { error } = await supabase.from("timesheet_entries").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -75,16 +77,28 @@ function rowToStaffTimesheet(r: any): StaffTimesheet {
   return {
     id: r.id,
     userId: r.user_id,
-    employeeKey: r.employee_key ?? null,
+    timesheetId: r.timesheet_id ?? null,
     jobSheetId: r.job_sheet_id ?? null,
     jobName: r.job_name ?? "",
     workDate: r.work_date ?? "",
-    timeIn: r.time_in ?? "",
-    timeOut: r.time_out ?? "",
-    breakMinutes: r.break_minutes ?? 0,
-    regularHours: r.regular_hours ?? 0,
-    overtimeHours: r.overtime_hours ?? 0,
     position: r.position ?? "",
+    firstName: r.first_name ?? "",
+    lastName: r.last_name ?? "",
+    phone: r.phone ?? "",
+    email: r.email ?? "",
+    timeIn1: r.time_in1 ?? "",
+    timeOut1: r.time_out1 ?? "",
+    lunchMinutes: r.lunch_minutes ?? 30,
+    timeIn2: r.time_in2 ?? "",
+    timeOut2: r.time_out2 ?? "",
+    stdHours: r.std_hours ?? 0,
+    otHours: r.ot_hours ?? 0,
+    dtHours: r.dt_hours ?? 0,
+    totalHours: r.total_hours ?? 0,
+    stdRate: r.std_rate ?? 35,
+    otRate: r.ot_rate ?? 52,
+    dtRate: r.dt_rate ?? 70,
+    totalPay: r.total_pay ?? 0,
     notes: r.notes ?? "",
     status: r.status ?? "submitted",
     createdAt: r.created_at ?? "",
@@ -96,16 +110,28 @@ function staffTimesheetToRow(t: StaffTimesheet) {
   return {
     id: t.id,
     user_id: t.userId,
-    employee_key: t.employeeKey ?? null,
+    timesheet_id: t.timesheetId ?? null,
     job_sheet_id: t.jobSheetId ?? null,
     job_name: t.jobName,
     work_date: t.workDate,
-    time_in: t.timeIn,
-    time_out: t.timeOut,
-    break_minutes: t.breakMinutes,
-    regular_hours: t.regularHours,
-    overtime_hours: t.overtimeHours,
     position: t.position,
+    first_name: t.firstName,
+    last_name: t.lastName,
+    phone: t.phone,
+    email: t.email,
+    time_in1: t.timeIn1,
+    time_out1: t.timeOut1,
+    lunch_minutes: t.lunchMinutes,
+    time_in2: t.timeIn2,
+    time_out2: t.timeOut2,
+    std_hours: t.stdHours,
+    ot_hours: t.otHours,
+    dt_hours: t.dtHours,
+    total_hours: t.totalHours,
+    std_rate: t.stdRate,
+    ot_rate: t.otRate,
+    dt_rate: t.dtRate,
+    total_pay: t.totalPay,
     notes: t.notes,
     status: t.status,
     updated_at: new Date().toISOString(),

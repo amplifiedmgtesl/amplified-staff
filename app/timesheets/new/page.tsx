@@ -1,43 +1,94 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
-import { upsertStaffTimesheet } from "@/lib/db";
+import { getProfile, upsertStaffTimesheet } from "@/lib/db";
 
-function calcHours(timeIn: string, timeOut: string, breakMin: number): { reg: number; ot: number } {
-  if (!timeIn || !timeOut) return { reg: 0, ot: 0 };
-  const [inH, inM] = timeIn.split(":").map(Number);
-  const [outH, outM] = timeOut.split(":").map(Number);
-  const totalMin = (outH * 60 + outM) - (inH * 60 + inM) - breakMin;
-  if (totalMin <= 0) return { reg: 0, ot: 0 };
-  const total = totalMin / 60;
-  const reg = Math.min(total, 8);
-  const ot = Math.max(0, total - 8);
-  return { reg: Math.round(reg * 100) / 100, ot: Math.round(ot * 100) / 100 };
+const POSITIONS = [
+  "Stagehand","Rigger","Rigger 1","Audio Technician","Lighting Technician",
+  "Video Technician","Fork Op","Camera Op","Operations","Lead","Other",
+];
+
+const LUNCH_OPTIONS = [0, 15, 30, 45, 60, 90];
+
+function timeOptions() {
+  const out = [""];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+  }
+  return out;
+}
+
+function toMinutes(t: string) {
+  if (!t) return null;
+  const [h, m] = t.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function calcHours(timeIn1: string, timeOut1: string, timeIn2: string, timeOut2: string, lunchMin: number) {
+  let total = 0;
+  const in1 = toMinutes(timeIn1), out1 = toMinutes(timeOut1);
+  const in2 = toMinutes(timeIn2), out2 = toMinutes(timeOut2);
+  if (in1 != null && out1 != null && out1 > in1) total += out1 - in1;
+  if (in2 != null && out2 != null && out2 > in2) total += out2 - in2;
+  total -= lunchMin;
+  if (total < 0) total = 0;
+  const totalHours = +(total / 60).toFixed(2);
+  const stdHours = +Math.min(8, totalHours).toFixed(2);
+  const otHours = totalHours > 8 ? +Math.min(4, totalHours - 8).toFixed(2) : 0;
+  const dtHours = totalHours > 12 ? +(totalHours - 12).toFixed(2) : 0;
+  return { totalHours, stdHours, otHours, dtHours };
 }
 
 export default function NewTimesheetPage() {
   const router = useRouter();
   const today = new Date().toISOString().split("T")[0];
+  const times = timeOptions();
 
+  const [profile, setProfile] = useState<{ firstName: string; lastName: string; phone: string; email: string } | null>(null);
   const [form, setForm] = useState({
     workDate: today,
     jobName: "",
-    position: "",
-    timeIn: "",
-    timeOut: "",
-    breakMinutes: "0",
+    position: "Stagehand",
+    timeIn1: "",
+    timeOut1: "",
+    lunchMinutes: "30",
+    timeIn2: "",
+    timeOut2: "",
     notes: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const p = await getProfile(user.id);
+      if (p) {
+        const parts = p.fullName.trim().split(" ");
+        setProfile({
+          firstName: parts[0] ?? "",
+          lastName: parts.slice(1).join(" ") ?? "",
+          phone: p.phone,
+          email: p.email,
+        });
+      }
+    }
+    load();
+  }, []);
+
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const { reg, ot } = calcHours(form.timeIn, form.timeOut, Number(form.breakMinutes) || 0);
+  const { totalHours, stdHours, otHours, dtHours } = calcHours(
+    form.timeIn1, form.timeOut1, form.timeIn2, form.timeOut2, Number(form.lunchMinutes) || 0
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,19 +98,34 @@ export default function NewTimesheetPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      const stdRate = 35, otRate = 52.5, dtRate = 70;
+      const totalPay = +(stdHours * stdRate + otHours * otRate + dtHours * dtRate).toFixed(2);
+
       await upsertStaffTimesheet({
         id: `sts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId: user.id,
-        employeeKey: null,
         jobSheetId: null,
+        timesheetId: null,
         jobName: form.jobName,
         workDate: form.workDate,
-        timeIn: form.timeIn,
-        timeOut: form.timeOut,
-        breakMinutes: Number(form.breakMinutes) || 0,
-        regularHours: reg,
-        overtimeHours: ot,
         position: form.position,
+        firstName: profile?.firstName ?? "",
+        lastName: profile?.lastName ?? "",
+        phone: profile?.phone ?? "",
+        email: profile?.email ?? "",
+        timeIn1: form.timeIn1,
+        timeOut1: form.timeOut1,
+        lunchMinutes: Number(form.lunchMinutes) || 0,
+        timeIn2: form.timeIn2,
+        timeOut2: form.timeOut2,
+        stdHours,
+        otHours,
+        dtHours,
+        totalHours,
+        stdRate,
+        otRate,
+        dtRate,
+        totalPay,
         notes: form.notes,
         status: "submitted",
         createdAt: new Date().toISOString(),
@@ -73,20 +139,25 @@ export default function NewTimesheetPage() {
     }
   }
 
+  const hasHours = totalHours > 0;
+
   return (
     <AppShell title="Submit Timesheet" subtitle="Enter your hours for a work day">
-      <form onSubmit={handleSubmit} style={{ maxWidth: 580 }}>
+      <form onSubmit={handleSubmit} style={{ maxWidth: 600 }}>
         <div className="card">
           <h2 className="section-title">Timesheet Entry</h2>
           <div className="grid">
+
             <div className="grid2">
               <div>
                 <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Work Date *</label>
                 <input type="date" value={form.workDate} onChange={set("workDate")} required />
               </div>
               <div>
-                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Position / Role</label>
-                <input value={form.position} onChange={set("position")} placeholder="e.g. Stage Hand, Rigger" />
+                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Position *</label>
+                <select value={form.position} onChange={set("position")}>
+                  {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
               </div>
             </div>
 
@@ -95,37 +166,71 @@ export default function NewTimesheetPage() {
               <input value={form.jobName} onChange={set("jobName")} placeholder="e.g. Taylor Swift — Allegiant Stadium" />
             </div>
 
-            <div className="grid3">
-              <div>
-                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Time In *</label>
-                <input type="time" value={form.timeIn} onChange={set("timeIn")} required />
-              </div>
-              <div>
-                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Time Out *</label>
-                <input type="time" value={form.timeOut} onChange={set("timeOut")} required />
-              </div>
-              <div>
-                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Break (min)</label>
-                <input type="number" min="0" max="120" value={form.breakMinutes} onChange={set("breakMinutes")} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold-dark)", marginBottom: 8 }}>Call / First Shift</div>
+              <div className="grid2">
+                <div>
+                  <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Time In *</label>
+                  <select value={form.timeIn1} onChange={set("timeIn1")} required>
+                    {times.map((t) => <option key={t} value={t}>{t || "— Select —"}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Time Out *</label>
+                  <select value={form.timeOut1} onChange={set("timeOut1")} required>
+                    {times.map((t) => <option key={t} value={t}>{t || "— Select —"}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
 
-            {(form.timeIn && form.timeOut) && (
+            <div>
+              <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Lunch Break</label>
+              <select value={form.lunchMinutes} onChange={set("lunchMinutes")}>
+                {LUNCH_OPTIONS.map((m) => <option key={m} value={m}>{m === 0 ? "No lunch" : `${m} min`}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold-dark)", marginBottom: 8 }}>Second Shift (optional)</div>
               <div className="grid2">
+                <div>
+                  <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Time In</label>
+                  <select value={form.timeIn2} onChange={set("timeIn2")}>
+                    {times.map((t) => <option key={t} value={t}>{t || "— None —"}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Time Out</label>
+                  <select value={form.timeOut2} onChange={set("timeOut2")}>
+                    {times.map((t) => <option key={t} value={t}>{t || "— None —"}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {hasHours && (
+              <div className="grid3">
                 <div className="metric-card">
-                  <div className="metric-label">Regular Hours</div>
-                  <div className="metric-value">{reg.toFixed(2)}</div>
+                  <div className="metric-label">Total Hours</div>
+                  <div className="metric-value">{totalHours.toFixed(2)}</div>
                 </div>
                 <div className="metric-card">
-                  <div className="metric-label">Overtime Hours</div>
-                  <div className="metric-value">{ot.toFixed(2)}</div>
+                  <div className="metric-label">Std / OT / DT</div>
+                  <div className="metric-value" style={{ fontSize: 18 }}>
+                    {stdHours.toFixed(1)} / {otHours.toFixed(1)} / {dtHours.toFixed(1)}
+                  </div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">Est. Pay</div>
+                  <div className="metric-value">${(stdHours * 35 + otHours * 52.5 + dtHours * 70).toFixed(2)}</div>
                 </div>
               </div>
             )}
 
             <div>
               <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Notes</label>
-              <textarea value={form.notes} onChange={set("notes")} placeholder="Any additional notes…" style={{ minHeight: 70 }} />
+              <textarea value={form.notes} onChange={set("notes")} placeholder="Any additional notes…" style={{ minHeight: 60 }} />
             </div>
 
             {error && <div style={{ color: "#c0392b", fontSize: 14 }}>{error}</div>}

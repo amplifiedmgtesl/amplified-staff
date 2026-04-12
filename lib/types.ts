@@ -10,19 +10,32 @@ export interface Profile {
   state: string;
 }
 
+// Matches TimeEntry from the ops suite — stored in timesheet_entries table
 export interface StaffTimesheet {
   id: string;
   userId: string;
-  employeeKey: string | null;
+  timesheetId: string | null;
   jobSheetId: string | null;
   jobName: string;
   workDate: string;
-  timeIn: string;
-  timeOut: string;
-  breakMinutes: number;
-  regularHours: number;
-  overtimeHours: number;
   position: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  timeIn1: string;
+  timeOut1: string;
+  lunchMinutes: number;
+  timeIn2: string;
+  timeOut2: string;
+  stdHours: number;
+  otHours: number;
+  dtHours: number;
+  totalHours: number;
+  stdRate: number;
+  otRate: number;
+  dtRate: number;
+  totalPay: number;
   notes: string;
   status: "submitted" | "approved" | "rejected";
   createdAt: string;
