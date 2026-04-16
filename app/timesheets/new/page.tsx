@@ -7,9 +7,11 @@ import { supabase } from "@/lib/supabase/client";
 import { getProfile, getJobSheets, upsertStaffTimesheet } from "@/lib/db";
 import type { JobSheetOption } from "@/lib/db";
 
-const POSITIONS = [
-  "Stagehand","Rigger","Rigger 1","Audio Technician","Lighting Technician",
-  "Video Technician","Fork Op","Camera Op","Operations","Lead","Other",
+// Fallback used until positions load from Supabase
+const POSITIONS_FALLBACK = [
+  "Stagehand","Stagehand Lead","Rigger","Head Rigger","Audio Technician",
+  "Lighting Technician","Video Technician","Forklift Operator","Camera Operator",
+  "Operations","Lead","Heavy Equipment Op","Aerial Lift Operator","General Labor","Other",
 ];
 
 const LUNCH_OPTIONS = [0, 15, 30, 45, 60, 90];
@@ -59,6 +61,7 @@ export default function NewTimesheetPage() {
   const [jobSheets, setJobSheets] = useState<JobSheetOption[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<JobSheetOption | null>(null);
   const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string } | null>(null);
+  const [positions, setPositions] = useState<string[]>(POSITIONS_FALLBACK);
   const [loadingSheets, setLoadingSheets] = useState(true);
 
   const [form, setForm] = useState({
@@ -78,7 +81,14 @@ export default function NewTimesheetPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const [p, sheets] = await Promise.all([getProfile(user.id), getJobSheets()]);
+      const [p, sheets, posRes] = await Promise.all([
+        getProfile(user.id),
+        getJobSheets(),
+        supabase.from("positions").select("name").eq("is_active", true).order("sort_order"),
+      ]);
+      if (posRes.data && posRes.data.length > 0) {
+        setPositions(posRes.data.map((r: any) => r.name));
+      }
       if (p) {
         const parts = p.fullName.trim().split(" ");
         setProfile({
@@ -204,7 +214,7 @@ export default function NewTimesheetPage() {
               <div>
                 <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Position *</label>
                 <select value={form.position} onChange={set("position")}>
-                  {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  {positions.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             </div>
