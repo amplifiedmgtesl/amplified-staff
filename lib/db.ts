@@ -1,5 +1,5 @@
 import { supabase } from "./supabase/client";
-import type { Profile, ScheduledJob, StaffTimesheet } from "./types";
+import type { Employee, Profile, ScheduledJob, StaffTimesheet } from "./types";
 
 export interface JobSheetOption {
   id: string;
@@ -65,6 +65,28 @@ export async function getJobSheets(): Promise<JobSheetOption[]> {
     date: r.date ?? "",
     callTime: r.call_time ?? "",
   }));
+}
+
+// ── Employee (read-only, linked via profile.employeeKey) ─────────────────────
+
+export async function getEmployee(employeeKey: string): Promise<Employee | null> {
+  const { data, error } = await supabase
+    .from("employees")
+    .select("employee_key, full_name, first_name, last_name, email, phone, address, city, state")
+    .eq("employee_key", employeeKey)
+    .single();
+  if (error || !data) return null;
+  return {
+    employeeKey: data.employee_key,
+    fullName: data.full_name ?? "",
+    firstName: data.first_name ?? "",
+    lastName: data.last_name ?? "",
+    email: data.email ?? "",
+    phone: data.phone ?? "",
+    address: data.address ?? "",
+    city: data.city ?? "",
+    state: data.state ?? "",
+  };
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────────

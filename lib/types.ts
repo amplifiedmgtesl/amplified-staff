@@ -11,6 +11,18 @@ export interface ScheduledJob {
   confirmed: boolean;
 }
 
+export interface Employee {
+  employeeKey: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+}
+
 export interface Profile {
   id: string;
   role: "staff" | "admin";
