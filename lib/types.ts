@@ -17,10 +17,6 @@ export interface Profile {
   employeeKey: string | null;
   fullName: string;
   email: string;
-  phone: string;
-  address: string;
-  city: string;
-  state: string;
 }
 
 // Matches TimeEntry from the ops suite — stored in timesheet_entries table

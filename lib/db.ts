@@ -117,10 +117,6 @@ function rowToProfile(r: any): Profile {
     employeeKey: r.employee_key ?? null,
     fullName: r.full_name ?? "",
     email: r.email ?? "",
-    phone: r.phone ?? "",
-    address: r.address ?? "",
-    city: r.city ?? "",
-    state: r.state ?? "",
   };
 }
 
@@ -131,10 +127,6 @@ function profileToRow(p: Profile) {
     employee_key: p.employeeKey ?? null,
     full_name: p.fullName,
     email: p.email,
-    phone: p.phone,
-    address: p.address,
-    city: p.city,
-    state: p.state,
     updated_at: new Date().toISOString(),
   };
 }

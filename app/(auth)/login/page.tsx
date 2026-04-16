@@ -42,10 +42,6 @@ export default function LoginPage() {
         employeeKey: null,
         fullName: "",
         email: user.email ?? "",
-        phone: "",
-        address: "",
-        city: "",
-        state: "",
       });
     }
 

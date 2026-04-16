@@ -58,7 +58,7 @@ export default function NewTimesheetPage() {
 
   const [jobSheets, setJobSheets] = useState<JobSheetOption[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<JobSheetOption | null>(null);
-  const [profile, setProfile] = useState<{ firstName: string; lastName: string; phone: string; email: string } | null>(null);
+  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string } | null>(null);
   const [loadingSheets, setLoadingSheets] = useState(true);
 
   const [form, setForm] = useState({
@@ -84,7 +84,6 @@ export default function NewTimesheetPage() {
         setProfile({
           firstName: parts[0] ?? "",
           lastName: parts.slice(1).join(" ") ?? "",
-          phone: p.phone,
           email: p.email,
         });
       }
@@ -128,7 +127,7 @@ export default function NewTimesheetPage() {
         position: form.position,
         firstName: profile?.firstName ?? "",
         lastName: profile?.lastName ?? "",
-        phone: profile?.phone ?? "",
+        phone: "",
         email: profile?.email ?? "",
         timeIn1: form.timeIn1,
         timeOut1: form.timeOut1,
