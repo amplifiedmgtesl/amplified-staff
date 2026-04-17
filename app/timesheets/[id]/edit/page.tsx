@@ -86,8 +86,8 @@ export default function EditTimesheetPage() {
       const found = all.find((t) => t.id === id);
 
       if (!found) { router.push("/timesheets"); return; }
-      if (found.status !== "submitted") {
-        // Already approved or rejected — can't edit
+      if (found.status === "approved" || found.status === "rejected") {
+        // Locked — admin has already made a decision
         router.push("/timesheets");
         return;
       }

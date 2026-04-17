@@ -126,9 +126,9 @@ export async function getMyTimesheets(userId: string, employeeKey?: string | nul
 }
 
 export async function updateStaffTimesheet(id: string, updates: Partial<StaffTimesheet>): Promise<void> {
-  // Safety check — only allow editing entries that are still in "submitted" state
+  // Safety check — only allow editing entries that are not yet approved or rejected
   const { data } = await supabase.from("timesheet_entries").select("status").eq("id", id).single();
-  if (!data || data.status !== "submitted") throw new Error("This entry can no longer be edited.");
+  if (!data || data.status === "approved" || data.status === "rejected") throw new Error("This entry can no longer be edited.");
   const { error } = await supabase
     .from("timesheet_entries")
     .update({
@@ -151,7 +151,7 @@ export async function updateStaffTimesheet(id: string, updates: Partial<StaffTim
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .eq("status", "submitted"); // double-safety: DB-level guard
+    .not("status", "in", '("approved","rejected")'); // double-safety: DB-level guard
   if (error) throw error;
 }
 

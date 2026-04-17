@@ -60,7 +60,7 @@ export default function NewTimesheetPage() {
 
   const [jobSheets, setJobSheets] = useState<JobSheetOption[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<JobSheetOption | null>(null);
-  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string } | null>(null);
+  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string; employeeKey: string | null } | null>(null);
   const [positions, setPositions] = useState<string[]>(POSITIONS_FALLBACK);
   const [loadingSheets, setLoadingSheets] = useState(true);
 
@@ -95,6 +95,7 @@ export default function NewTimesheetPage() {
           firstName: parts[0] ?? "",
           lastName: parts.slice(1).join(" ") ?? "",
           email: p.email,
+          employeeKey: p.employeeKey ?? null,
         });
       }
       setJobSheets(sheets);
@@ -130,6 +131,7 @@ export default function NewTimesheetPage() {
       await upsertStaffTimesheet({
         id: `sts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId: user.id,
+        employeeKey: profile?.employeeKey ?? null,
         timesheetId: null,
         jobSheetId: selectedSheet.id,
         jobName: [selectedSheet.client, selectedSheet.eventName].filter(Boolean).join(" — "),

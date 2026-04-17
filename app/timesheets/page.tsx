@@ -85,7 +85,7 @@ export default function TimesheetsPage() {
                   <td>{statusBadge(t)}</td>
                   <td>
                     <div className="action-row">
-                      {t.status === "submitted" && (
+                      {t.status !== "approved" && t.status !== "rejected" && (
                         <button
                           className="secondary"
                           style={{ padding: "4px 10px", fontSize: 12 }}
