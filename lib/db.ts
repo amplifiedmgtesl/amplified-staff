@@ -108,14 +108,51 @@ export async function upsertProfile(profile: Profile): Promise<void> {
 
 // ── Staff Timesheets (stored in timesheet_entries with user_id set) ───────────
 
-export async function getMyTimesheets(userId: string): Promise<StaffTimesheet[]> {
-  const { data, error } = await supabase
-    .from("timesheet_entries")
-    .select("*")
-    .eq("user_id", userId)
-    .order("work_date", { ascending: false });
+export async function getMyTimesheets(userId: string, employeeKey?: string | null): Promise<StaffTimesheet[]> {
+  // Fetch entries submitted by this user OR created by admin for this employee record
+  let query = supabase.from("timesheet_entries").select("*");
+  if (employeeKey) {
+    query = query.or(`user_id.eq.${userId},employee_key.eq.${employeeKey}`);
+  } else {
+    query = query.eq("user_id", userId);
+  }
+  const { data, error } = await query.order("updated_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map(rowToStaffTimesheet);
+  // Deduplicate by id (safety in case both filters match the same row)
+  const seen = new Set<string>();
+  return (data ?? [])
+    .filter((r: any) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; })
+    .map(rowToStaffTimesheet);
+}
+
+export async function updateStaffTimesheet(id: string, updates: Partial<StaffTimesheet>): Promise<void> {
+  // Safety check — only allow editing entries that are still in "submitted" state
+  const { data } = await supabase.from("timesheet_entries").select("status").eq("id", id).single();
+  if (!data || data.status !== "submitted") throw new Error("This entry can no longer be edited.");
+  const { error } = await supabase
+    .from("timesheet_entries")
+    .update({
+      position: updates.position,
+      time_in1: updates.timeIn1,
+      time_out1: updates.timeOut1,
+      lunch_minutes: updates.lunchMinutes,
+      time_in2: updates.timeIn2,
+      time_out2: updates.timeOut2,
+      std_hours: updates.stdHours,
+      ot_hours: updates.otHours,
+      dt_hours: updates.dtHours,
+      total_hours: updates.totalHours,
+      std_rate: updates.stdRate,
+      ot_rate: updates.otRate,
+      dt_rate: updates.dtRate,
+      total_pay: updates.totalPay,
+      notes: updates.notes,
+      work_date: updates.workDate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "submitted"); // double-safety: DB-level guard
+  if (error) throw error;
 }
 
 export async function upsertStaffTimesheet(entry: StaffTimesheet): Promise<void> {
@@ -156,7 +193,8 @@ function profileToRow(p: Profile) {
 function rowToStaffTimesheet(r: any): StaffTimesheet {
   return {
     id: r.id,
-    userId: r.user_id,
+    userId: r.user_id ?? null,
+    employeeKey: r.employee_key ?? null,
     timesheetId: r.timesheet_id ?? null,
     jobSheetId: r.job_sheet_id ?? null,
     jobName: r.job_name ?? "",
@@ -180,7 +218,7 @@ function rowToStaffTimesheet(r: any): StaffTimesheet {
     dtRate: r.dt_rate ?? 70,
     totalPay: r.total_pay ?? 0,
     notes: r.notes ?? "",
-    status: r.status ?? "submitted",
+    status: r.status ?? null,
     createdAt: r.created_at ?? "",
     updatedAt: r.updated_at ?? "",
   };
@@ -190,6 +228,7 @@ function staffTimesheetToRow(t: StaffTimesheet) {
   return {
     id: t.id,
     user_id: t.userId,
+    employee_key: t.employeeKey ?? null,
     timesheet_id: t.timesheetId ?? null,
     job_sheet_id: t.jobSheetId ?? null,
     job_name: t.jobName,

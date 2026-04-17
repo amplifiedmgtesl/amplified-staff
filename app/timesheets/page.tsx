@@ -3,18 +3,31 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
-import { getMyTimesheets, deleteStaffTimesheet } from "@/lib/db";
+import { getMyTimesheets, deleteStaffTimesheet, getProfile } from "@/lib/db";
 import type { StaffTimesheet } from "@/lib/types";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+function statusBadge(t: StaffTimesheet) {
+  // Admin-created entries: timesheetId set, no status → "On Record"
+  if (!t.status && t.timesheetId) return <span className="badge badge-green">On Record</span>;
+  if (!t.status) return <span className="badge">Pending</span>;
+  if (t.status === "submitted") return <span className="badge badge-blue">Submitted</span>;
+  if (t.status === "approved")  return <span className="badge badge-green">Approved</span>;
+  if (t.status === "rejected")  return <span className="badge badge-red">Rejected</span>;
+  return <span className="badge">{t.status}</span>;
+}
 
 export default function TimesheetsPage() {
+  const router = useRouter();
   const [timesheets, setTimesheets] = useState<StaffTimesheet[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const ts = await getMyTimesheets(user.id);
+    const profile = await getProfile(user.id);
+    const ts = await getMyTimesheets(user.id, profile?.employeeKey ?? null);
     setTimesheets(ts);
     setLoading(false);
   }
@@ -59,7 +72,7 @@ export default function TimesheetsPage() {
             <tbody>
               {timesheets.map((t) => (
                 <tr key={t.id}>
-                  <td>{t.workDate}</td>
+                  <td>{t.workDate || "—"}</td>
                   <td>{t.jobName || "—"}</td>
                   <td>{t.position || "—"}</td>
                   <td>{t.timeIn1 || "—"}</td>
@@ -69,15 +82,28 @@ export default function TimesheetsPage() {
                   <td>{t.otHours > 0 ? t.otHours.toFixed(1) : "—"}</td>
                   <td>{t.dtHours > 0 ? t.dtHours.toFixed(1) : "—"}</td>
                   <td><strong>{t.totalHours.toFixed(1)}</strong></td>
+                  <td>{statusBadge(t)}</td>
                   <td>
-                    <span className={`badge ${t.status === "approved" ? "badge-green" : t.status === "rejected" ? "badge-red" : "badge-blue"}`}>
-                      {t.status}
-                    </span>
-                  </td>
-                  <td>
-                    {t.status === "submitted" && (
-                      <button className="danger" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => handleDelete(t.id)}>Delete</button>
-                    )}
+                    <div className="action-row">
+                      {t.status === "submitted" && (
+                        <button
+                          className="secondary"
+                          style={{ padding: "4px 10px", fontSize: 12 }}
+                          onClick={() => router.push(`/timesheets/${t.id}/edit`)}
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {t.status === "submitted" && (
+                        <button
+                          className="danger"
+                          style={{ padding: "4px 10px", fontSize: 12 }}
+                          onClick={() => handleDelete(t.id)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

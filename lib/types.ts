@@ -34,7 +34,8 @@ export interface Profile {
 // Matches TimeEntry from the ops suite — stored in timesheet_entries table
 export interface StaffTimesheet {
   id: string;
-  userId: string;
+  userId: string | null;        // null for admin-created entries
+  employeeKey: string | null;   // set when linked to an employee record
   timesheetId: string | null;
   jobSheetId: string | null;
   jobName: string;
@@ -58,7 +59,7 @@ export interface StaffTimesheet {
   dtRate: number;
   totalPay: number;
   notes: string;
-  status: "submitted" | "approved" | "rejected";
+  status: string | null;  // null = admin-created/confirmed; submitted | approved | rejected for staff entries
   createdAt: string;
   updatedAt: string;
 }
