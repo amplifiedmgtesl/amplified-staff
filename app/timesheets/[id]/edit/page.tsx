@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
 import { getMyTimesheets, updateStaffTimesheet } from "@/lib/db";
 import type { StaffTimesheet } from "@/lib/types";
+import { computeShift, timeOptions5Min, MEAL_BREAK_OPTIONS } from "@/lib/time-calc";
 
 const POSITIONS_FALLBACK = [
   "Stagehand","Stagehand Lead","Rigger","Head Rigger","Audio Technician",
@@ -13,45 +14,11 @@ const POSITIONS_FALLBACK = [
   "Operations","Lead","Heavy Equipment Op","Aerial Lift Operator","General Labor","Other",
 ];
 
-const LUNCH_OPTIONS = [0, 15, 30, 45, 60, 90];
-
-function timeOptions() {
-  const out = [""];
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-    }
-  }
-  return out;
-}
-
-function toMinutes(t: string) {
-  if (!t) return null;
-  const [h, m] = t.split(":").map(Number);
-  if (isNaN(h) || isNaN(m)) return null;
-  return h * 60 + m;
-}
-
-function calcHours(timeIn1: string, timeOut1: string, timeIn2: string, timeOut2: string, lunchMin: number) {
-  let total = 0;
-  const in1 = toMinutes(timeIn1), out1 = toMinutes(timeOut1);
-  const in2 = toMinutes(timeIn2), out2 = toMinutes(timeOut2);
-  if (in1 != null && out1 != null && out1 > in1) total += out1 - in1;
-  if (in2 != null && out2 != null && out2 > in2) total += out2 - in2;
-  total -= lunchMin;
-  if (total < 0) total = 0;
-  const totalHours = +(total / 60).toFixed(2);
-  const stdHours = +Math.min(8, totalHours).toFixed(2);
-  const otHours = totalHours > 8 ? +Math.min(4, totalHours - 8).toFixed(2) : 0;
-  const dtHours = totalHours > 12 ? +(totalHours - 12).toFixed(2) : 0;
-  return { totalHours, stdHours, otHours, dtHours };
-}
-
 export default function EditTimesheetPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
-  const times = timeOptions();
+  const times = timeOptions5Min();
 
   const [entry, setEntry] = useState<StaffTimesheet | null>(null);
   const [positions, setPositions] = useState<string[]>(POSITIONS_FALLBACK);
@@ -64,9 +31,10 @@ export default function EditTimesheetPage() {
     position: "Stagehand",
     timeIn1: "",
     timeOut1: "",
-    lunchMinutes: "30",
+    mealBreak1Minutes: "30",
     timeIn2: "",
     timeOut2: "",
+    mealBreak2Minutes: "0",
     notes: "",
   });
 
@@ -98,9 +66,10 @@ export default function EditTimesheetPage() {
         position: found.position || "Stagehand",
         timeIn1: found.timeIn1 || "",
         timeOut1: found.timeOut1 || "",
-        lunchMinutes: String(found.lunchMinutes ?? 30),
+        mealBreak1Minutes: String(found.mealBreak1Minutes ?? found.lunchMinutes ?? 30),
         timeIn2: found.timeIn2 || "",
         timeOut2: found.timeOut2 || "",
+        mealBreak2Minutes: String(found.mealBreak2Minutes ?? 0),
         notes: found.notes || "",
       });
       setLoading(false);
@@ -111,13 +80,20 @@ export default function EditTimesheetPage() {
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const { totalHours, stdHours, otHours, dtHours } = calcHours(
-    form.timeIn1, form.timeOut1, form.timeIn2, form.timeOut2, Number(form.lunchMinutes) || 0
-  );
   const stdRate = entry?.stdRate ?? 35;
   const otRate  = entry?.otRate  ?? 52.5;
   const dtRate  = entry?.dtRate  ?? 70;
-  const totalPay = +(stdHours * stdRate + otHours * otRate + dtHours * dtRate).toFixed(2);
+  const { endDate, totalHours, stdHours, otHours, dtHours, totalPay } = computeShift({
+    workDate: form.workDate,
+    timeIn1: form.timeIn1,
+    timeOut1: form.timeOut1,
+    mealBreak1Minutes: Number(form.mealBreak1Minutes) || 0,
+    timeIn2: form.timeIn2,
+    timeOut2: form.timeOut2,
+    mealBreak2Minutes: Number(form.mealBreak2Minutes) || 0,
+    stdRate, otRate, dtRate,
+  });
+  const crossesMidnight = !!endDate && endDate !== form.workDate;
   const hasHours = totalHours > 0;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -127,12 +103,15 @@ export default function EditTimesheetPage() {
     try {
       await updateStaffTimesheet(id, {
         workDate: form.workDate,
+        endDate,
         position: form.position,
         timeIn1: form.timeIn1,
         timeOut1: form.timeOut1,
-        lunchMinutes: Number(form.lunchMinutes) || 0,
+        mealBreak1Minutes: Number(form.mealBreak1Minutes) || 0,
         timeIn2: form.timeIn2,
         timeOut2: form.timeOut2,
+        mealBreak2Minutes: Number(form.mealBreak2Minutes) || 0,
+        lunchMinutes: Number(form.mealBreak1Minutes) || 0,
         stdHours,
         otHours,
         dtHours,
@@ -173,7 +152,7 @@ export default function EditTimesheetPage() {
           <div className="grid">
             <div className="grid2">
               <div>
-                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Work Date</label>
+                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Start Date</label>
                 <input type="date" value={form.workDate} onChange={set("workDate")} required />
               </div>
               <div>
@@ -200,13 +179,12 @@ export default function EditTimesheetPage() {
                   </select>
                 </div>
               </div>
-            </div>
-
-            <div>
-              <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Lunch Break</label>
-              <select value={form.lunchMinutes} onChange={set("lunchMinutes")}>
-                {LUNCH_OPTIONS.map((m) => <option key={m} value={m}>{m === 0 ? "No lunch" : `${m} min`}</option>)}
-              </select>
+              <div style={{ marginTop: 8 }}>
+                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Meal Break 1</label>
+                <select value={form.mealBreak1Minutes} onChange={set("mealBreak1Minutes")}>
+                  {MEAL_BREAK_OPTIONS.map((m) => <option key={m} value={m}>{m === 0 ? "No break" : `${m} min`}</option>)}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -225,7 +203,19 @@ export default function EditTimesheetPage() {
                   </select>
                 </div>
               </div>
+              <div style={{ marginTop: 8 }}>
+                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Meal Break 2</label>
+                <select value={form.mealBreak2Minutes} onChange={set("mealBreak2Minutes")}>
+                  {MEAL_BREAK_OPTIONS.map((m) => <option key={m} value={m}>{m === 0 ? "No break" : `${m} min`}</option>)}
+                </select>
+              </div>
             </div>
+
+            {crossesMidnight && (
+              <div className="muted" style={{ fontSize: 13, padding: "8px 10px", background: "#fff7e6", border: "1px solid #e8c980", borderRadius: 8 }}>
+                Shift crosses midnight — end date will be saved as <strong>{endDate}</strong>.
+              </div>
+            )}
 
             {hasHours && (
               <div className="grid3">

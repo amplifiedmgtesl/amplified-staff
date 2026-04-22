@@ -40,6 +40,7 @@ export interface StaffTimesheet {
   jobSheetId: string | null;
   jobName: string;
   workDate: string;
+  endDate: string;              // auto-advanced when a shift crosses midnight
   position: string;
   firstName: string;
   lastName: string;
@@ -47,9 +48,11 @@ export interface StaffTimesheet {
   email: string;
   timeIn1: string;
   timeOut1: string;
-  lunchMinutes: number;
+  mealBreak1Minutes: number;    // replaces legacy lunchMinutes for pair 1
   timeIn2: string;
   timeOut2: string;
+  mealBreak2Minutes: number;    // for pair 2 split shifts
+  lunchMinutes: number;         // legacy (kept for rollback / old rows)
   stdHours: number;
   otHours: number;
   dtHours: number;
