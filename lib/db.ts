@@ -49,7 +49,33 @@ export async function getMySchedule(userEmail: string): Promise<ScheduledJob[]> 
 
 // ── Job Sheets (read-only for staff) ─────────────────────────────────────────
 
-export async function getJobSheets(): Promise<JobSheetOption[]> {
+export async function getJobSheets(userEmail?: string | null): Promise<JobSheetOption[]> {
+  if (userEmail) {
+    const { data, error } = await supabase
+      .from("job_sheet_workers")
+      .select(`job_sheets ( id, title, client, event_name, venue, city_state, date, call_time )`)
+      .eq("email", userEmail);
+    if (error) throw error;
+    const seen = new Set<string>();
+    const sheets: JobSheetOption[] = [];
+    for (const r of (data ?? []) as any[]) {
+      const js = r.job_sheets;
+      if (!js || seen.has(js.id)) continue;
+      seen.add(js.id);
+      sheets.push({
+        id: js.id,
+        title: js.title ?? "",
+        client: js.client ?? "",
+        eventName: js.event_name ?? "",
+        venue: js.venue ?? "",
+        cityState: js.city_state ?? "",
+        date: js.date ?? "",
+        callTime: js.call_time ?? "",
+      });
+    }
+    return sheets.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
   const { data, error } = await supabase
     .from("job_sheets")
     .select("id, title, client, event_name, venue, city_state, date, call_time")

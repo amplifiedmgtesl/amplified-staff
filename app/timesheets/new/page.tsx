@@ -51,7 +51,7 @@ export default function NewTimesheetPage() {
       if (!user) return;
       const [p, sheets, posRes] = await Promise.all([
         getProfile(user.id),
-        getJobSheets(),
+        getJobSheets(user.email ?? null),
         supabase.from("positions").select("name").eq("is_active", true).order("sort_order"),
       ]);
       if (posRes.data && posRes.data.length > 0) {
