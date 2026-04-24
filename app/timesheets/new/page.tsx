@@ -27,7 +27,7 @@ export default function NewTimesheetPage() {
 
   const [jobSheets, setJobSheets] = useState<JobSheetOption[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<JobSheetOption | null>(null);
-  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string; employeeKey: string | null } | null>(null);
+  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string; employeeKey: string | null; role: string } | null>(null);
   const [positions, setPositions] = useState<string[]>(POSITIONS_FALLBACK);
   const [loadingSheets, setLoadingSheets] = useState(true);
 
@@ -64,6 +64,7 @@ export default function NewTimesheetPage() {
           lastName: parts.slice(1).join(" ") ?? "",
           email: p.email,
           employeeKey: p.employeeKey ?? null,
+          role: p.role,
         });
       }
       setJobSheets(sheets);
@@ -96,7 +97,8 @@ export default function NewTimesheetPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedSheet) { setError("Please select a job sheet."); return; }
+    const isCoordinator = profile?.role === "coordinator" || profile?.role === "admin";
+    if (!selectedSheet && !isCoordinator) { setError("Please select a job sheet."); return; }
     setError(null);
     setSaving(true);
     try {
@@ -108,8 +110,10 @@ export default function NewTimesheetPage() {
         userId: user.id,
         employeeKey: profile?.employeeKey ?? null,
         timesheetId: null,
-        jobSheetId: selectedSheet.id,
-        jobName: [selectedSheet.client, selectedSheet.eventName].filter(Boolean).join(" — "),
+        jobSheetId: selectedSheet?.id ?? null,
+        jobName: selectedSheet
+          ? [selectedSheet.client, selectedSheet.eventName].filter(Boolean).join(" — ")
+          : "Office / Remote",
         workDate: form.workDate,
         endDate,
         position: form.position,
@@ -161,20 +165,24 @@ export default function NewTimesheetPage() {
               </label>
               {loadingSheets ? (
                 <p className="muted" style={{ fontSize: 13 }}>Loading jobs…</p>
-              ) : jobSheets.length === 0 ? (
-                <p className="muted" style={{ fontSize: 13 }}>No job sheets available. Contact your administrator.</p>
-              ) : (
-                <select
-                  value={selectedSheet?.id ?? ""}
-                  onChange={(e) => handleSheetSelect(e.target.value)}
-                  required
-                >
-                  <option value="">— Select a job —</option>
-                  {jobSheets.map((s) => (
-                    <option key={s.id} value={s.id}>{formatJobSheetLabel(s)}</option>
-                  ))}
-                </select>
-              )}
+              ) : (() => {
+                const isCoordinator = profile?.role === "coordinator" || profile?.role === "admin";
+                if (jobSheets.length === 0 && !isCoordinator) {
+                  return <p className="muted" style={{ fontSize: 13 }}>No job sheets available. Contact your administrator.</p>;
+                }
+                return (
+                  <select
+                    value={selectedSheet?.id ?? ""}
+                    onChange={(e) => handleSheetSelect(e.target.value)}
+                    required={!isCoordinator}
+                  >
+                    <option value="">{isCoordinator ? "— Office / Remote (no job) —" : "— Select a job —"}</option>
+                    {jobSheets.map((s) => (
+                      <option key={s.id} value={s.id}>{formatJobSheetLabel(s)}</option>
+                    ))}
+                  </select>
+                );
+              })()}
             </div>
 
             {/* Selected job details */}
@@ -280,7 +288,7 @@ export default function NewTimesheetPage() {
             {error && <div style={{ color: "#c0392b", fontSize: 14 }}>{error}</div>}
 
             <div className="action-row">
-              <button type="submit" disabled={saving || !selectedSheet}>
+              <button type="submit" disabled={saving || (!selectedSheet && !(profile?.role === "coordinator" || profile?.role === "admin"))}>
                 {saving ? "Submitting…" : "Submit Timesheet"}
               </button>
               <button type="button" className="secondary" onClick={() => router.back()}>Cancel</button>

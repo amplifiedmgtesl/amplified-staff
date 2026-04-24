@@ -26,8 +26,8 @@ export default function LoginPage() {
     const user = data.user;
     const profile = await getProfile(user.id);
 
-    // If a profile exists but the role is admin, block them
-    if (profile && profile.role !== "staff") {
+    // Only staff and coordinators use this portal
+    if (profile && profile.role !== "staff" && profile.role !== "coordinator") {
       await supabase.auth.signOut();
       setError("This portal is for staff only. Please use the Operations Suite to sign in.");
       setLoading(false);

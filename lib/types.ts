@@ -25,7 +25,7 @@ export interface Employee {
 
 export interface Profile {
   id: string;
-  role: "staff" | "admin" | "crew_leader";
+  role: "staff" | "admin" | "crew_leader" | "coordinator";
   employeeKey: string | null;
   fullName: string;
   email: string;
