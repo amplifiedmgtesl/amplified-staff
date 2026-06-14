@@ -7,96 +7,53 @@ import { computeTimeEntry } from "./calc/timekeeping";
 import { resolveEntryRates } from "./calc/rate-resolution";
 import type { TimeEntry } from "./calc/types";
 
-export interface JobSheetOption {
-  id: string;
-  title: string;
-  client: string;
-  eventName: string;
-  venue: string;
-  cityState: string;
-  date: string;
-  callTime: string;
-}
+// ── My Schedule (V2) ─────────────────────────────────────────────────────────
+// Sourced from job_request_assignments (by employee_key) → job_request_days →
+// job_requests. The legacy job_sheets / job_sheet_workers path was retired in the
+// V2 alignment — those tables are decommissioned, read-only history. One entry per
+// assigned day; all assignments shown (no confirmed/upcoming filter at this layer —
+// the schedule page splits upcoming vs. past).
 
-// ── My Schedule (jobs the logged-in user is assigned to) ─────────────────────
+export async function getMySchedule(employeeKey: string | null | undefined): Promise<ScheduledJob[]> {
+  if (!employeeKey) return [];
+  const assignments = await getMyAssignments(employeeKey);
+  if (assignments.length === 0) return [];
 
-export async function getMySchedule(userEmail: string): Promise<ScheduledJob[]> {
-  const { data, error } = await supabase
-    .from("job_sheet_workers")
-    .select(`
-      role,
-      confirmed,
-      job_sheets (
-        id, client, event_name, venue, city_state, date, call_time, notes
-      )
-    `)
-    .eq("email", userEmail);
-  if (error) throw error;
-  return (data ?? [])
-    .map((r: any) => {
-      const js = r.job_sheets;
-      if (!js) return null;
-      return {
-        jobSheetId: js.id,
-        client: js.client ?? "",
-        eventName: js.event_name ?? "",
-        venue: js.venue ?? "",
-        cityState: js.city_state ?? "",
-        date: js.date ?? "",
-        callTime: js.call_time ?? "",
-        notes: js.notes ?? "",
-        role: r.role ?? "",
-        confirmed: r.confirmed ?? false,
-      } as ScheduledJob;
-    })
-    .filter((j): j is ScheduledJob => j !== null)
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
+  // Resolve display labels for position/specialty and shift.
+  const [positions, specialties] = await Promise.all([getPositions(), getSpecialties()]);
+  const posName = new Map(positions.map((p) => [p.id, p.name]));
+  const specName = new Map(specialties.map((s) => [s.id, s.name]));
 
-// ── Job Sheets (read-only for staff) ─────────────────────────────────────────
-
-export async function getJobSheets(userEmail?: string | null): Promise<JobSheetOption[]> {
-  if (userEmail) {
-    const { data, error } = await supabase
-      .from("job_sheet_workers")
-      .select(`job_sheets ( id, title, client, event_name, venue, city_state, date, call_time )`)
-      .eq("email", userEmail);
-    if (error) throw error;
-    const seen = new Set<string>();
-    const sheets: JobSheetOption[] = [];
-    for (const r of (data ?? []) as any[]) {
-      const js = r.job_sheets;
-      if (!js || seen.has(js.id)) continue;
-      seen.add(js.id);
-      sheets.push({
-        id: js.id,
-        title: js.title ?? "",
-        client: js.client ?? "",
-        eventName: js.event_name ?? "",
-        venue: js.venue ?? "",
-        cityState: js.city_state ?? "",
-        date: js.date ?? "",
-        callTime: js.call_time ?? "",
-      });
-    }
-    return sheets.sort((a, b) => b.date.localeCompare(a.date));
-  }
-
-  const { data, error } = await supabase
-    .from("job_sheets")
-    .select("id, title, client, event_name, venue, city_state, date, call_time")
-    .order("date", { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map((r: any) => ({
-    id: r.id,
-    title: r.title ?? "",
-    client: r.client ?? "",
-    eventName: r.event_name ?? "",
-    venue: r.venue ?? "",
-    cityState: r.city_state ?? "",
-    date: r.date ?? "",
-    callTime: r.call_time ?? "",
+  const jobIds = [...new Set(assignments.map((a) => a.jobId).filter(Boolean))] as string[];
+  const shiftLabel = new Map<string, string>();
+  await Promise.all(jobIds.map(async (jid) => {
+    const shifts = await getJobShifts(jid);
+    shifts.forEach((s) => shiftLabel.set(s.id, s.label));
   }));
+
+  return assignments
+    .map((a): ScheduledJob => {
+      const role = [
+        a.positionId ? posName.get(a.positionId) : null,
+        a.specialtyId ? specName.get(a.specialtyId) : null,
+      ].filter(Boolean).join(" · ");
+      return {
+        assignmentId: a.assignmentId,
+        jobId: a.jobId,
+        date: a.eventDate,
+        client: a.client,
+        eventName: a.eventName,
+        venue: a.venue,
+        cityState: a.cityState,
+        callTime: a.callTime,
+        role,
+        shiftLabel: a.shiftId ? (shiftLabel.get(a.shiftId) ?? "") : "",
+        isHoliday: a.isHoliday,
+        notes: a.notes,
+        confirmed: a.confirmed,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ── Employee (read-only, linked via profile.employeeKey) ─────────────────────
@@ -385,7 +342,7 @@ function rowToStaffTimesheet(r: any): StaffTimesheet {
 export async function getMyAssignments(employeeKey: string): Promise<AssignmentOption[]> {
   const { data: aData, error } = await supabase
     .from("job_request_assignments")
-    .select("id, job_request_day_id, shift_id, position_id, specialty_id, confirmed")
+    .select("id, job_request_day_id, shift_id, position_id, specialty_id, confirmed, notes")
     .eq("employee_key", employeeKey);
   if (error) throw error;
   const assignments = aData ?? [];
@@ -418,6 +375,7 @@ export async function getMyAssignments(employeeKey: string): Promise<AssignmentO
         isHoliday: day?.is_holiday ?? false,
         callTime: day?.call_time ?? "",
         confirmed: a.confirmed ?? false,
+        notes: a.notes ?? "",
         client: job?.client ?? "",
         eventName: job?.event_name ?? "",
         venue: job?.venue ?? "",

@@ -1,13 +1,18 @@
+// V2: one entry per assigned day, sourced from job_request_assignments →
+// job_request_days → job_requests (was job_sheet_workers/job_sheets, decommissioned).
 export interface ScheduledJob {
-  jobSheetId: string;
+  assignmentId: string;   // unique key (one per assigned day)
+  jobId: string | null;
+  date: string;           // event_date
   client: string;
   eventName: string;
   venue: string;
   cityState: string;
-  date: string;
   callTime: string;
+  role: string;           // position · specialty label
+  shiftLabel: string;
+  isHoliday: boolean;
   notes: string;
-  role: string;
   confirmed: boolean;
 }
 
@@ -93,6 +98,7 @@ export interface AssignmentOption {
   isHoliday: boolean;
   callTime: string;
   confirmed: boolean;
+  notes: string;
   client: string;
   eventName: string;
   venue: string;

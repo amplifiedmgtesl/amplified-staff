@@ -22,9 +22,8 @@ export default function DashboardPage() {
       const [p, ts] = await Promise.all([getProfile(user.id), getMyTimesheets(user.id)]);
       setProfile(p);
       setTimesheets(ts);
-      const email = p?.email || user.email || "";
-      if (email) {
-        const jobs = await getMySchedule(email);
+      if (p?.employeeKey) {
+        const jobs = await getMySchedule(p.employeeKey);
         setUpcoming(jobs.filter((j) => j.date >= today).slice(0, 3));
       }
       setLoading(false);
@@ -73,7 +72,7 @@ export default function DashboardPage() {
               </div>
               <div className="grid">
                 {upcoming.map((job) => (
-                  <div key={job.jobSheetId} style={{ background: "var(--cream)", border: "1px solid var(--line)", borderLeft: "3px solid var(--gold)", borderRadius: 10, padding: "12px 14px" }}>
+                  <div key={job.assignmentId} style={{ background: "var(--cream)", border: "1px solid var(--line)", borderLeft: "3px solid var(--gold)", borderRadius: 10, padding: "12px 14px" }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{job.client}{job.eventName ? ` — ${job.eventName}` : ""}</div>
                     <div className="muted" style={{ fontSize: 13 }}>{job.venue}{job.cityState ? `, ${job.cityState}` : ""}</div>
                     <div style={{ fontSize: 13, marginTop: 6, display: "flex", gap: 14, flexWrap: "wrap" }}>

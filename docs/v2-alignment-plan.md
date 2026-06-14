@@ -135,10 +135,17 @@ Decisions: checkbox (not a 2nd button); AOS surfacing = inline marker + day-head
       default rates) is the only intentionally-incomplete path.
       Master data needed: `positions` (id, name, is_active, sort_order), `specialties`
       (id, position_id, name, is_active, sort_order).
-- [ ] **Phase 2 — My Schedule onto V2.** Rewrite `getMySchedule` to query
-      `job_request_assignments` by `employee_key` → days → job_requests. Show all. Update types + UI.
-- [ ] **Phase 3 — Rename + cleanup.** `std/ot/dt/total` → `bill_*` across `lib/db.ts`, `lib/types.ts`,
-      UI. Remove dead `getJobSheets`/`job_sheets` reads and types.
+- [x] **Phase 2 — My Schedule onto V2.** DONE 2026-06-14. `getMySchedule(employeeKey)` rewritten to
+      build on `getMyAssignments` (job_request_assignments → days → job_requests), resolving
+      position/specialty/shift labels. ScheduledJob redefined (assignmentId key, role, shiftLabel,
+      isHoliday, notes). Schedule + dashboard pages pass `employeeKey` and key on `assignmentId`;
+      schedule card shows shift + holiday. One card per assigned day; all shown (page splits
+      upcoming/past). `tsc --noEmit` clean.
+- [x] **Phase 3 — Rename + cleanup.** Bill_* rename done in Phase 1. Removed dead `getJobSheets` +
+      `JobSheetOption` + legacy job_sheets-reading `getMySchedule`. NO staff code now reads the
+      decommissioned `job_sheets` / `job_sheet_workers` TABLES (verified). Residual: the legacy
+      `timesheet_entries.job_sheet_id` COLUMN is still mapped on StaffTimesheet (it's a real column,
+      null on new rows) — kept for reading old rows; harmless.
 - [ ] **Phase 4 — Verify on dev.** RLS/grants for staff role on the new read tables + write columns.
       End-to-end: staff submits against an assignment → row appears in AOS fully priced & approvable
       with zero admin edits. Cross-check bill_total vs AOS for identical inputs.

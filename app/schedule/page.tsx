@@ -27,9 +27,8 @@ export default function SchedulePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const profile = await getProfile(user.id);
-      const email = profile?.email || user.email || "";
-      if (!email) { setLoading(false); return; }
-      const jobs = await getMySchedule(email);
+      if (!profile?.employeeKey) { setLoading(false); return; }
+      const jobs = await getMySchedule(profile.employeeKey);
       setUpcoming(jobs.filter((j) => j.date >= today));
       setPast(jobs.filter((j) => j.date < today).reverse());
       setLoading(false);
@@ -50,7 +49,7 @@ export default function SchedulePage() {
             ) : (
               <div className="grid">
                 {upcoming.map((job) => (
-                  <JobCard key={job.jobSheetId} job={job} />
+                  <JobCard key={job.assignmentId} job={job} />
                 ))}
               </div>
             )}
@@ -74,7 +73,7 @@ export default function SchedulePage() {
               {showPast && (
                 <div className="grid">
                   {past.map((job) => (
-                    <JobCard key={job.jobSheetId} job={job} muted />
+                    <JobCard key={job.assignmentId} job={job} muted />
                   ))}
                 </div>
               )}
@@ -112,6 +111,8 @@ function JobCard({ job, muted = false }: { job: ScheduledJob; muted?: boolean })
             <span>📅 {formatDate(job.date)}</span>
             {job.callTime && <span>⏰ Call: {job.callTime}</span>}
             {job.role && <span>🎭 {job.role}</span>}
+            {job.shiftLabel && <span>🕒 {job.shiftLabel}</span>}
+            {job.isHoliday && <span style={{ color: "var(--gold-dark)", fontWeight: 700 }}>🎄 Holiday</span>}
           </div>
           {job.notes && (
             <div className="muted" style={{ fontSize: 12, marginTop: 8, fontStyle: "italic" }}>
