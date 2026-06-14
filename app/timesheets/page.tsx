@@ -112,9 +112,9 @@ export default function TimesheetsPage() {
                   <td>{t.workDate || "—"}</td>
                   <td>{t.jobName || "—"}</td>
                   <td>{t.position || "—"}</td>
-                  <td>{t.timeIn1 || "—"}</td>
-                  <td>{t.timeOut1 || "—"}</td>
-                  <td>{t.lunchMinutes ? `${t.lunchMinutes}m` : "—"}</td>
+                  <td>{t.timeIn1 || "—"}{t.timeIn2 ? <div className="muted" style={{ fontSize: 11 }}>{t.timeIn2}</div> : null}</td>
+                  <td>{t.timeOut1 || "—"}{t.timeOut2 ? <div className="muted" style={{ fontSize: 11 }}>{t.timeOut2}</div> : null}</td>
+                  <td>{t.mealBreak1Minutes ? `${t.mealBreak1Minutes}m` : "—"}{(t.timeIn2 || t.timeOut2) ? <div className="muted" style={{ fontSize: 11 }}>{t.mealBreak2Minutes ? `${t.mealBreak2Minutes}m` : "0m"}</div> : null}</td>
                   <td>{t.stdHours.toFixed(1)}</td>
                   <td>{t.otHours > 0 ? t.otHours.toFixed(1) : "—"}</td>
                   <td>{t.dtHours > 0 ? t.dtHours.toFixed(1) : "—"}</td>
