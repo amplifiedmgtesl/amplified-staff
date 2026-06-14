@@ -1,5 +1,11 @@
 import { supabase } from "./supabase/client";
-import type { Employee, Profile, ScheduledJob, StaffTimesheet } from "./types";
+import type {
+  Employee, Profile, ScheduledJob, StaffTimesheet,
+  AssignmentOption, PositionOption, SpecialtyOption, ShiftOption,
+} from "./types";
+import { computeTimeEntry } from "./calc/timekeeping";
+import { resolveEntryRates } from "./calc/rate-resolution";
+import type { TimeEntry } from "./calc/types";
 
 export interface JobSheetOption {
   id: string;
@@ -151,43 +157,149 @@ export async function getMyTimesheets(userId: string, employeeKey?: string | nul
     .map(rowToStaffTimesheet);
 }
 
-export async function updateStaffTimesheet(id: string, updates: Partial<StaffTimesheet>): Promise<void> {
-  // Safety check — only allow editing entries that are not yet approved or rejected
-  const { data } = await supabase.from("timesheet_entries").select("status").eq("id", id).single();
-  if (!data || data.status === "approved" || data.status === "rejected") throw new Error("This entry can no longer be edited.");
-  const { error } = await supabase
-    .from("timesheet_entries")
-    .update({
-      position: updates.position,
-      work_date: updates.workDate,
-      end_date: updates.endDate,
-      time_in1: updates.timeIn1,
-      time_out1: updates.timeOut1,
-      meal_break_1_minutes: updates.mealBreak1Minutes,
-      time_in2: updates.timeIn2,
-      time_out2: updates.timeOut2,
-      meal_break_2_minutes: updates.mealBreak2Minutes,
-      lunch_minutes: updates.mealBreak1Minutes ?? updates.lunchMinutes,
-      std_hours: updates.stdHours,
-      ot_hours: updates.otHours,
-      dt_hours: updates.dtHours,
-      total_hours: updates.totalHours,
-      std_rate: updates.stdRate,
-      ot_rate: updates.otRate,
-      dt_rate: updates.dtRate,
-      total_pay: updates.totalPay,
-      notes: updates.notes,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .not("status", "in", '("approved","rejected")'); // double-safety: DB-level guard
+// Everything the staff form supplies to create/update one entry. Bill rates,
+// hours, holiday multiplier and totals are NOT here — they are resolved + computed
+// server-side-equivalently (same logic as AOS) so the saved row is fully priced
+// and admin-ready. See lib/calc/.
+export interface StaffEntryInput {
+  id: string;
+  userId: string | null;
+  employeeKey: string | null;
+  jobId: string | null;          // null = coordinator escape hatch (no job)
+  jobName: string;               // display label
+  shiftId: string | null;
+  positionId: string | null;
+  specialtyId: string | null;
+  position: string;              // text label snapshot
+  isHoliday: boolean;
+  staffFinalized: boolean;       // worker's "I'm done" checkbox
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  workDate: string;
+  timeIn1: string;
+  timeOut1: string;
+  timeIn2: string;
+  timeOut2: string;
+  mealBreak1Minutes: number;
+  mealBreak2Minutes: number;
+  notes: string;
+  status: string | null;
+}
+
+// Resolve the rate card for (job, specialty), run the shared calc, and produce the
+// full DB row. This is the single place that turns staff form input into a complete,
+// approvable timesheet_entries row.
+async function buildEntryRow(input: StaffEntryInput): Promise<Record<string, unknown>> {
+  const rates = await resolveEntryRates(input.jobId, input.specialtyId);
+  const computed: TimeEntry = computeTimeEntry({
+    id: input.id,
+    position: input.position,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    phone: input.phone,
+    email: input.email,
+    workDate: input.workDate,
+    endDate: input.workDate,
+    timeIn1: input.timeIn1,
+    timeOut1: input.timeOut1,
+    timeIn2: input.timeIn2,
+    timeOut2: input.timeOut2,
+    lunchMinutes: input.mealBreak1Minutes,
+    mealBreak1Minutes: input.mealBreak1Minutes,
+    mealBreak2Minutes: input.mealBreak2Minutes,
+    stdHours: 0, otHours: 0, dtHours: 0, totalHours: 0,
+    billStdRate: rates.billStdRate,
+    billOtRate: rates.billOtRate,
+    billDtRate: rates.billDtRate,
+    billOtAfter: rates.billOtAfter,
+    billDtAfter: rates.billDtAfter,
+    billTotal: 0,
+    isHoliday: input.isHoliday,
+    holidayMultiplier: input.isHoliday ? rates.holidayMultiplier : null,
+    jobId: input.jobId,
+    shiftId: input.shiftId,
+    positionId: input.positionId,
+    specialtyId: input.specialtyId,
+    employeeKey: input.employeeKey,
+    userId: input.userId,
+    status: input.status,
+  });
+  // NOTE: timesheet_id is intentionally NOT in this object. On create it's set to
+  // null by createStaffEntry (entry enters the pending-review queue). On update it
+  // is omitted so an existing value is PRESERVED — editing a crew-leader's planned
+  // entry must keep it attached to the job timesheet, not detach it.
+  return {
+    id: computed.id,
+    user_id: computed.userId ?? null,
+    employee_key: computed.employeeKey ?? null,
+    job_id: computed.jobId ?? null,
+    job_sheet_id: null,
+    shift_id: computed.shiftId ?? null,
+    position_id: computed.positionId ?? null,
+    specialty_id: computed.specialtyId ?? null,
+    job_name: input.jobName,
+    work_date: computed.workDate,
+    end_date: computed.endDate || computed.workDate,
+    position: computed.position,
+    first_name: computed.firstName,
+    last_name: computed.lastName,
+    phone: computed.phone,
+    email: computed.email,
+    time_in1: computed.timeIn1,
+    time_out1: computed.timeOut1,
+    meal_break_1_minutes: computed.mealBreak1Minutes,
+    time_in2: computed.timeIn2,
+    time_out2: computed.timeOut2,
+    meal_break_2_minutes: computed.mealBreak2Minutes,
+    lunch_minutes: computed.mealBreak1Minutes, // keep legacy column in sync
+    std_hours: computed.stdHours,
+    ot_hours: computed.otHours,
+    dt_hours: computed.dtHours,
+    total_hours: computed.totalHours,
+    bill_std_rate: computed.billStdRate,
+    bill_ot_rate: computed.billOtRate,
+    bill_dt_rate: computed.billDtRate,
+    bill_ot_after: computed.billOtAfter ?? null,
+    bill_dt_after: computed.billDtAfter ?? null,
+    bill_total: computed.billTotal,
+    is_holiday: computed.isHoliday ?? false,
+    holiday_multiplier: computed.holidayMultiplier ?? null,
+    staff_finalized: input.staffFinalized,
+    staff_finalized_at: input.staffFinalized ? new Date().toISOString() : null,
+    notes: input.notes,
+    status: computed.status ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** Create a new staff timesheet entry — fully priced and ready to approve. Used for
+ *  the exception paths (mid-shift reassignment, an extra unscheduled shift). New
+ *  entries start unattached (timesheet_id null) so they land in the job's pending
+ *  review queue. */
+export async function createStaffEntry(input: StaffEntryInput): Promise<void> {
+  const row = await buildEntryRow(input);
+  const { error } = await supabase.from("timesheet_entries").upsert({ ...row, timesheet_id: null });
   if (error) throw error;
 }
 
-export async function upsertStaffTimesheet(entry: StaffTimesheet): Promise<void> {
+/** Update an existing entry — typically a crew-leader's PLANNED record, where the
+ *  worker fills in actual time. Re-resolves rates + recomputes (so an on-site
+ *  specialty/position change re-prices). Preserves timesheet_id (stays on the job
+ *  sheet) and status (stays 'submitted', pending approval). Blocked once
+ *  approved/rejected (app guard + DB freeze trigger). */
+export async function updateStaffEntry(input: StaffEntryInput): Promise<void> {
+  const { data } = await supabase.from("timesheet_entries").select("status").eq("id", input.id).single();
+  if (!data || data.status === "approved" || data.status === "rejected") {
+    throw new Error("This entry can no longer be edited.");
+  }
+  const row = await buildEntryRow(input); // no timesheet_id key → existing value preserved
   const { error } = await supabase
     .from("timesheet_entries")
-    .upsert(staffTimesheetToRow(entry));
+    .update(row)
+    .eq("id", input.id)
+    .not("status", "in", '("approved","rejected")'); // DB-level guard
   if (error) throw error;
 }
 
@@ -225,8 +337,12 @@ function rowToStaffTimesheet(r: any): StaffTimesheet {
     userId: r.user_id ?? null,
     employeeKey: r.employee_key ?? null,
     timesheetId: r.timesheet_id ?? null,
+    jobId: r.job_id ?? null,
     jobSheetId: r.job_sheet_id ?? null,
     jobName: r.job_name ?? "",
+    shiftId: r.shift_id ?? null,
+    positionId: r.position_id ?? null,
+    specialtyId: r.specialty_id ?? null,
     workDate: r.work_date ?? "",
     endDate: r.end_date ?? "",
     position: r.position ?? "",
@@ -245,10 +361,16 @@ function rowToStaffTimesheet(r: any): StaffTimesheet {
     otHours: r.ot_hours ?? 0,
     dtHours: r.dt_hours ?? 0,
     totalHours: r.total_hours ?? 0,
-    stdRate: r.std_rate ?? 35,
-    otRate: r.ot_rate ?? 52,
-    dtRate: r.dt_rate ?? 70,
-    totalPay: r.total_pay ?? 0,
+    billStdRate: r.bill_std_rate ?? 35,
+    billOtRate: r.bill_ot_rate ?? 52,
+    billDtRate: r.bill_dt_rate ?? 70,
+    billOtAfter: r.bill_ot_after == null ? null : Number(r.bill_ot_after),
+    billDtAfter: r.bill_dt_after == null ? null : Number(r.bill_dt_after),
+    billTotal: r.bill_total ?? 0,
+    isHoliday: r.is_holiday ?? false,
+    holidayMultiplier: r.holiday_multiplier == null ? null : Number(r.holiday_multiplier),
+    staffFinalized: r.staff_finalized ?? false,
+    staffFinalizedAt: r.staff_finalized_at ?? null,
     notes: r.notes ?? "",
     status: r.status ?? null,
     createdAt: r.created_at ?? "",
@@ -256,38 +378,73 @@ function rowToStaffTimesheet(r: any): StaffTimesheet {
   };
 }
 
-function staffTimesheetToRow(t: StaffTimesheet) {
-  return {
-    id: t.id,
-    user_id: t.userId,
-    employee_key: t.employeeKey ?? null,
-    timesheet_id: t.timesheetId ?? null,
-    job_sheet_id: t.jobSheetId ?? null,
-    job_name: t.jobName,
-    work_date: t.workDate,
-    end_date: t.endDate || t.workDate,
-    position: t.position,
-    first_name: t.firstName,
-    last_name: t.lastName,
-    phone: t.phone,
-    email: t.email,
-    time_in1: t.timeIn1,
-    time_out1: t.timeOut1,
-    meal_break_1_minutes: t.mealBreak1Minutes,
-    time_in2: t.timeIn2,
-    time_out2: t.timeOut2,
-    meal_break_2_minutes: t.mealBreak2Minutes,
-    lunch_minutes: t.mealBreak1Minutes, // keep legacy column in sync
-    std_hours: t.stdHours,
-    ot_hours: t.otHours,
-    dt_hours: t.dtHours,
-    total_hours: t.totalHours,
-    std_rate: t.stdRate,
-    ot_rate: t.otRate,
-    dt_rate: t.dtRate,
-    total_pay: t.totalPay,
-    notes: t.notes,
-    status: t.status,
-    updated_at: new Date().toISOString(),
-  };
+// ── V2 scheduling + master data ───────────────────────────────────────────────
+
+/** The assignments (job_request_assignments) this staff member can log against.
+ *  No FKs exist on these tables, so we stitch with explicit batched queries. */
+export async function getMyAssignments(employeeKey: string): Promise<AssignmentOption[]> {
+  const { data: aData, error } = await supabase
+    .from("job_request_assignments")
+    .select("id, job_request_day_id, shift_id, position_id, specialty_id, confirmed")
+    .eq("employee_key", employeeKey);
+  if (error) throw error;
+  const assignments = aData ?? [];
+  if (assignments.length === 0) return [];
+
+  const dayIds = [...new Set(assignments.map((a: any) => a.job_request_day_id).filter(Boolean))];
+  const { data: dData } = await supabase
+    .from("job_request_days")
+    .select("id, job_request_id, event_date, call_time, is_holiday")
+    .in("id", dayIds);
+  const days = new Map((dData ?? []).map((d: any) => [d.id, d]));
+
+  const jobIds = [...new Set((dData ?? []).map((d: any) => d.job_request_id).filter(Boolean))];
+  const { data: jData } = jobIds.length
+    ? await supabase.from("job_requests").select("id, client, event_name, venue, city_state").in("id", jobIds)
+    : { data: [] as any[] };
+  const jobs = new Map((jData ?? []).map((j: any) => [j.id, j]));
+
+  return assignments
+    .map((a: any): AssignmentOption => {
+      const day = days.get(a.job_request_day_id);
+      const job = day ? jobs.get(day.job_request_id) : undefined;
+      return {
+        assignmentId: a.id,
+        jobId: day?.job_request_id ?? null,
+        shiftId: a.shift_id ?? null,
+        positionId: a.position_id ?? null,
+        specialtyId: a.specialty_id ?? null,
+        eventDate: day?.event_date ?? "",
+        isHoliday: day?.is_holiday ?? false,
+        callTime: day?.call_time ?? "",
+        confirmed: a.confirmed ?? false,
+        client: job?.client ?? "",
+        eventName: job?.event_name ?? "",
+        venue: job?.venue ?? "",
+        cityState: job?.city_state ?? "",
+      };
+    })
+    .sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+}
+
+export async function getPositions(): Promise<PositionOption[]> {
+  const { data, error } = await supabase
+    .from("positions").select("id, name").eq("is_active", true).order("sort_order");
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({ id: r.id, name: r.name }));
+}
+
+export async function getSpecialties(): Promise<SpecialtyOption[]> {
+  const { data, error } = await supabase
+    .from("specialties").select("id, position_id, name").eq("is_active", true).order("sort_order");
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({ id: r.id, positionId: r.position_id, name: r.name }));
+}
+
+export async function getJobShifts(jobId: string): Promise<ShiftOption[]> {
+  const { data, error } = await supabase
+    .from("job_request_shifts").select("id, label").eq("job_request_id", jobId)
+    .eq("is_active", true).order("sort_order");
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({ id: r.id, label: r.label }));
 }

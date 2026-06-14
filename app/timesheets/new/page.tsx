@@ -1,22 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
-import { getProfile, getJobSheets, upsertStaffTimesheet } from "@/lib/db";
-import type { JobSheetOption } from "@/lib/db";
-import { computeShift, timeOptions5Min, MEAL_BREAK_OPTIONS } from "@/lib/time-calc";
+import {
+  getProfile, getEmployee, getMyAssignments, getPositions, getSpecialties,
+  getJobShifts, createStaffEntry,
+} from "@/lib/db";
+import type { AssignmentOption, PositionOption, SpecialtyOption, ShiftOption } from "@/lib/types";
+import { computeTimeEntry } from "@/lib/calc/timekeeping";
+import { resolveEntryRates } from "@/lib/calc/rate-resolution";
+import { timeOptions5Min, MEAL_BREAK_OPTIONS } from "@/lib/time-calc";
 
-// Fallback used until positions load from Supabase
-const POSITIONS_FALLBACK = [
-  "Stagehand","Stagehand Lead","Rigger","Head Rigger","Audio Technician",
-  "Lighting Technician","Video Technician","Forklift Operator","Camera Operator",
-  "Operations","Lead","Heavy Equipment Op","Aerial Lift Operator","General Labor","Other",
-];
-
-function formatJobSheetLabel(js: JobSheetOption) {
-  const parts = [js.date, js.client, js.eventName, js.venue].filter(Boolean);
+function assignmentLabel(a: AssignmentOption) {
+  const parts = [a.eventDate, a.client, a.eventName].filter(Boolean);
   return parts.join(" — ");
 }
 
@@ -25,15 +23,22 @@ export default function NewTimesheetPage() {
   const today = new Date().toISOString().split("T")[0];
   const times = timeOptions5Min();
 
-  const [jobSheets, setJobSheets] = useState<JobSheetOption[]>([]);
-  const [selectedSheet, setSelectedSheet] = useState<JobSheetOption | null>(null);
-  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string; employeeKey: string | null; role: string } | null>(null);
-  const [positions, setPositions] = useState<string[]>(POSITIONS_FALLBACK);
-  const [loadingSheets, setLoadingSheets] = useState(true);
+  const [profile, setProfile] = useState<{ firstName: string; lastName: string; email: string; phone: string; employeeKey: string | null; role: string } | null>(null);
+  const [assignments, setAssignments] = useState<AssignmentOption[]>([]);
+  const [positions, setPositions] = useState<PositionOption[]>([]);
+  const [specialties, setSpecialties] = useState<SpecialtyOption[]>([]);
+  const [shifts, setShifts] = useState<ShiftOption[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [form, setForm] = useState({
+    assignmentId: "",
+    jobId: null as string | null,
+    jobName: "",
+    isHoliday: false,
     workDate: today,
-    position: "Stagehand",
+    positionId: "",
+    specialtyId: "",
+    shiftId: "",
     timeIn1: "",
     timeOut1: "",
     mealBreak1Minutes: "30",
@@ -42,106 +47,143 @@ export default function NewTimesheetPage() {
     mealBreak2Minutes: "0",
     notes: "",
   });
+  // Bill-rate snapshot for the current (job, specialty) — used for the live hours
+  // preview and re-resolved authoritatively at save time.
+  const [rates, setRates] = useState({ billStdRate: 35, billOtRate: 52, billDtRate: 70, billOtAfter: null as number | null, billDtAfter: null as number | null });
+  const [finalized, setFinalized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isCoordinator = profile?.role === "coordinator" || profile?.role === "admin";
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const [p, sheets, posRes] = await Promise.all([
-        getProfile(user.id),
-        getJobSheets(user.email ?? null),
-        supabase.from("positions").select("name").eq("is_active", true).order("sort_order"),
+      const p = await getProfile(user.id);
+      const [emp, asg, pos, spec] = await Promise.all([
+        p?.employeeKey ? getEmployee(p.employeeKey) : Promise.resolve(null),
+        p?.employeeKey ? getMyAssignments(p.employeeKey) : Promise.resolve([]),
+        getPositions(),
+        getSpecialties(),
       ]);
-      if (posRes.data && posRes.data.length > 0) {
-        setPositions(posRes.data.map((r: any) => r.name));
-      }
       if (p) {
-        const parts = p.fullName.trim().split(" ");
         setProfile({
-          firstName: parts[0] ?? "",
-          lastName: parts.slice(1).join(" ") ?? "",
-          email: p.email,
+          firstName: emp?.firstName || (p.fullName.trim().split(" ")[0] ?? ""),
+          lastName: emp?.lastName || (p.fullName.trim().split(" ").slice(1).join(" ") ?? ""),
+          email: emp?.email || p.email,
+          phone: emp?.phone ?? "",
           employeeKey: p.employeeKey ?? null,
           role: p.role,
         });
       }
-      setJobSheets(sheets);
-      setLoadingSheets(false);
+      setAssignments(asg);
+      setPositions(pos);
+      setSpecialties(spec);
+      setLoading(false);
     }
     load();
   }, []);
 
-  function handleSheetSelect(id: string) {
-    const sheet = jobSheets.find((s) => s.id === id) ?? null;
-    setSelectedSheet(sheet);
-    if (sheet?.date) setForm((f) => ({ ...f, workDate: sheet.date }));
+  // Re-resolve bill rates whenever the job or specialty changes (rates are keyed
+  // by specialty_id, so an on-site specialty change must re-price).
+  useEffect(() => {
+    let active = true;
+    resolveEntryRates(form.jobId, form.specialtyId || null).then((r) => {
+      if (active) setRates({ billStdRate: r.billStdRate, billOtRate: r.billOtRate, billDtRate: r.billDtRate, billOtAfter: r.billOtAfter, billDtAfter: r.billDtAfter });
+    });
+    return () => { active = false; };
+  }, [form.jobId, form.specialtyId]);
+
+  const specialtiesForPosition = useMemo(
+    () => specialties.filter((s) => s.positionId === form.positionId),
+    [specialties, form.positionId],
+  );
+  const positionRequiresSpecialty = specialtiesForPosition.length > 0;
+  const jobHasShifts = shifts.length > 0;
+
+  async function handleAssignmentSelect(assignmentId: string) {
+    const a = assignments.find((x) => x.assignmentId === assignmentId) ?? null;
+    if (!a) {
+      setForm((f) => ({ ...f, assignmentId: "", jobId: null, jobName: "", isHoliday: false, shiftId: "" }));
+      setShifts([]);
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      assignmentId,
+      jobId: a.jobId,
+      jobName: [a.client, a.eventName].filter(Boolean).join(" — "),
+      isHoliday: a.isHoliday,
+      workDate: a.eventDate || f.workDate,
+      positionId: a.positionId ?? f.positionId,
+      specialtyId: a.specialtyId ?? "",
+      shiftId: a.shiftId ?? "",
+    }));
+    setShifts(a.jobId ? await getJobShifts(a.jobId) : []);
+  }
+
+  function handlePositionChange(positionId: string) {
+    const specs = specialties.filter((s) => s.positionId === positionId);
+    setForm((f) => ({ ...f, positionId, specialtyId: specs[0]?.id ?? "" }));
   }
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const stdRate = 35, otRate = 52.5, dtRate = 70;
-  const { endDate, totalHours, stdHours, otHours, dtHours, totalPay } = computeShift({
-    workDate: form.workDate,
-    timeIn1: form.timeIn1,
-    timeOut1: form.timeOut1,
+  const preview = computeTimeEntry({
+    id: "preview", position: "", firstName: "", lastName: "", phone: "", email: "",
+    workDate: form.workDate, endDate: form.workDate,
+    timeIn1: form.timeIn1, timeOut1: form.timeOut1, timeIn2: form.timeIn2, timeOut2: form.timeOut2,
+    lunchMinutes: Number(form.mealBreak1Minutes) || 0,
     mealBreak1Minutes: Number(form.mealBreak1Minutes) || 0,
-    timeIn2: form.timeIn2,
-    timeOut2: form.timeOut2,
     mealBreak2Minutes: Number(form.mealBreak2Minutes) || 0,
-    stdRate, otRate, dtRate,
+    stdHours: 0, otHours: 0, dtHours: 0, totalHours: 0,
+    billStdRate: rates.billStdRate, billOtRate: rates.billOtRate, billDtRate: rates.billDtRate,
+    billOtAfter: rates.billOtAfter, billDtAfter: rates.billDtAfter, billTotal: 0,
+    isHoliday: form.isHoliday, holidayMultiplier: null,
   });
-  const crossesMidnight = !!endDate && endDate !== form.workDate;
+  const crossesMidnight = !!preview.endDate && preview.endDate !== form.workDate;
+  const hasHours = preview.totalHours > 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const isCoordinator = profile?.role === "coordinator" || profile?.role === "admin";
-    if (!selectedSheet && !isCoordinator) { setError("Please select a job sheet."); return; }
+    if (!form.assignmentId && !isCoordinator) { setError("Please select a job you're assigned to."); return; }
+    if (positionRequiresSpecialty && !form.specialtyId) { setError("Please select a specialty for this position."); return; }
+    if (jobHasShifts && !form.shiftId) { setError("Please select a shift."); return; }
     setError(null);
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
+      const positionName = positions.find((p) => p.id === form.positionId)?.name ?? "";
 
-      await upsertStaffTimesheet({
+      await createStaffEntry({
         id: `sts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId: user.id,
         employeeKey: profile?.employeeKey ?? null,
-        timesheetId: null,
-        jobSheetId: selectedSheet?.id ?? null,
-        jobName: selectedSheet
-          ? [selectedSheet.client, selectedSheet.eventName].filter(Boolean).join(" — ")
-          : "Office / Remote",
-        workDate: form.workDate,
-        endDate,
-        position: form.position,
+        jobId: form.jobId,
+        jobName: form.jobName || "Office / Remote",
+        shiftId: form.shiftId || null,
+        positionId: form.positionId || null,
+        specialtyId: form.specialtyId || null,
+        position: positionName,
+        isHoliday: form.isHoliday,
         firstName: profile?.firstName ?? "",
         lastName: profile?.lastName ?? "",
-        phone: "",
+        phone: profile?.phone ?? "",
         email: profile?.email ?? "",
+        workDate: form.workDate,
         timeIn1: form.timeIn1,
         timeOut1: form.timeOut1,
-        mealBreak1Minutes: Number(form.mealBreak1Minutes) || 0,
         timeIn2: form.timeIn2,
         timeOut2: form.timeOut2,
+        mealBreak1Minutes: Number(form.mealBreak1Minutes) || 0,
         mealBreak2Minutes: Number(form.mealBreak2Minutes) || 0,
-        lunchMinutes: Number(form.mealBreak1Minutes) || 0,
-        stdHours,
-        otHours,
-        dtHours,
-        totalHours,
-        stdRate,
-        otRate,
-        dtRate,
-        totalPay,
+        staffFinalized: finalized,
         notes: form.notes,
         status: "submitted",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       });
-
       router.push("/timesheets");
     } catch (err: any) {
       setError(err.message ?? "Failed to save.");
@@ -149,7 +191,7 @@ export default function NewTimesheetPage() {
     }
   }
 
-  const hasHours = totalHours > 0;
+  const selected = assignments.find((a) => a.assignmentId === form.assignmentId) ?? null;
 
   return (
     <AppShell title="Submit Timesheet" subtitle="Enter your hours for a work day">
@@ -158,39 +200,31 @@ export default function NewTimesheetPage() {
           <h2 className="section-title">Timesheet Entry</h2>
           <div className="grid">
 
-            {/* Job Sheet selector */}
+            {/* Assignment selector */}
             <div>
               <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>
                 Job / Event *
               </label>
-              {loadingSheets ? (
+              {loading ? (
                 <p className="muted" style={{ fontSize: 13 }}>Loading jobs…</p>
-              ) : (() => {
-                const isCoordinator = profile?.role === "coordinator" || profile?.role === "admin";
-                if (jobSheets.length === 0 && !isCoordinator) {
-                  return <p className="muted" style={{ fontSize: 13 }}>No job sheets available. Contact your administrator.</p>;
-                }
-                return (
-                  <select
-                    value={selectedSheet?.id ?? ""}
-                    onChange={(e) => handleSheetSelect(e.target.value)}
-                    required={!isCoordinator}
-                  >
-                    <option value="">{isCoordinator ? "— Office / Remote (no job) —" : "— Select a job —"}</option>
-                    {jobSheets.map((s) => (
-                      <option key={s.id} value={s.id}>{formatJobSheetLabel(s)}</option>
-                    ))}
-                  </select>
-                );
-              })()}
+              ) : assignments.length === 0 && !isCoordinator ? (
+                <p className="muted" style={{ fontSize: 13 }}>You have no scheduled jobs. Contact your administrator.</p>
+              ) : (
+                <select value={form.assignmentId} onChange={(e) => handleAssignmentSelect(e.target.value)} required={!isCoordinator}>
+                  <option value="">{isCoordinator ? "— Office / Remote (no job) —" : "— Select a job —"}</option>
+                  {assignments.map((a) => (
+                    <option key={a.assignmentId} value={a.assignmentId}>{assignmentLabel(a)}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
-            {/* Selected job details */}
-            {selectedSheet && (
+            {selected && (
               <div style={{ background: "var(--cream)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-                <div><strong>{selectedSheet.client}</strong> — {selectedSheet.eventName}</div>
-                <div className="muted">{selectedSheet.venue}{selectedSheet.cityState ? `, ${selectedSheet.cityState}` : ""}</div>
-                {selectedSheet.callTime && <div className="muted">Call time: {selectedSheet.callTime}</div>}
+                <div><strong>{selected.client}</strong>{selected.eventName ? ` — ${selected.eventName}` : ""}</div>
+                <div className="muted">{selected.venue}{selected.cityState ? `, ${selected.cityState}` : ""}</div>
+                {selected.callTime && <div className="muted">Call time: {selected.callTime}</div>}
+                {selected.isHoliday && <div style={{ color: "var(--gold-dark)", fontWeight: 700 }}>Holiday rate applies</div>}
               </div>
             )}
 
@@ -201,11 +235,34 @@ export default function NewTimesheetPage() {
               </div>
               <div>
                 <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Position *</label>
-                <select value={form.position} onChange={set("position")}>
-                  {positions.map((p) => <option key={p} value={p}>{p}</option>)}
+                <select value={form.positionId} onChange={(e) => handlePositionChange(e.target.value)} required>
+                  <option value="">— Select —</option>
+                  {positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
             </div>
+
+            {/* Specialty (only when the chosen position has specialties) */}
+            {positionRequiresSpecialty && (
+              <div>
+                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Specialty *</label>
+                <select value={form.specialtyId} onChange={set("specialtyId")} required>
+                  <option value="">— Select —</option>
+                  {specialtiesForPosition.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Shift (only when the job defines shifts) */}
+            {jobHasShifts && (
+              <div>
+                <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Shift *</label>
+                <select value={form.shiftId} onChange={set("shiftId")} required>
+                  <option value="">— Select —</option>
+                  {shifts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              </div>
+            )}
 
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold-dark)", marginBottom: 8 }}>Call / First Shift</div>
@@ -257,25 +314,21 @@ export default function NewTimesheetPage() {
 
             {crossesMidnight && (
               <div className="muted" style={{ fontSize: 13, padding: "8px 10px", background: "#fff7e6", border: "1px solid #e8c980", borderRadius: 8 }}>
-                Shift crosses midnight — end date will be saved as <strong>{endDate}</strong>.
+                Shift crosses midnight — end date will be saved as <strong>{preview.endDate}</strong>.
               </div>
             )}
 
             {hasHours && (
-              <div className="grid3">
+              <div className="grid2">
                 <div className="metric-card">
                   <div className="metric-label">Total Hours</div>
-                  <div className="metric-value">{totalHours.toFixed(2)}</div>
+                  <div className="metric-value">{preview.totalHours.toFixed(2)}</div>
                 </div>
                 <div className="metric-card">
                   <div className="metric-label">Std / OT / DT</div>
                   <div className="metric-value" style={{ fontSize: 18 }}>
-                    {stdHours.toFixed(1)} / {otHours.toFixed(1)} / {dtHours.toFixed(1)}
+                    {preview.stdHours.toFixed(1)} / {preview.otHours.toFixed(1)} / {preview.dtHours.toFixed(1)}
                   </div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-label">Est. Pay</div>
-                  <div className="metric-value">${totalPay.toFixed(2)}</div>
                 </div>
               </div>
             )}
@@ -285,10 +338,15 @@ export default function NewTimesheetPage() {
               <textarea value={form.notes} onChange={set("notes")} placeholder="Any additional notes…" style={{ minHeight: 60 }} />
             </div>
 
+            <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--cream)", border: "1px solid var(--line)", borderRadius: 10, cursor: "pointer", fontSize: 14 }}>
+              <input type="checkbox" checked={finalized} onChange={(e) => setFinalized(e.target.checked)} style={{ width: 18, height: 18 }} />
+              <span>I'm done — this is my final time for this shift.</span>
+            </label>
+
             {error && <div style={{ color: "#c0392b", fontSize: 14 }}>{error}</div>}
 
             <div className="action-row">
-              <button type="submit" disabled={saving || (!selectedSheet && !(profile?.role === "coordinator" || profile?.role === "admin"))}>
+              <button type="submit" disabled={saving || (!form.assignmentId && !isCoordinator)}>
                 {saving ? "Submitting…" : "Submit Timesheet"}
               </button>
               <button type="button" className="secondary" onClick={() => router.back()}>Cancel</button>

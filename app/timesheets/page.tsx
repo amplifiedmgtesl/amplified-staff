@@ -12,7 +12,10 @@ function statusBadge(t: StaffTimesheet) {
   // Admin-created entries: timesheetId set, no status → "On Record"
   if (!t.status && t.timesheetId) return <span className="badge badge-green">On Record</span>;
   if (!t.status) return <span className="badge">Pending</span>;
-  if (t.status === "submitted") return <span className="badge badge-blue">Submitted</span>;
+  // 'submitted' is the working state for both planned rows and worker entries.
+  // staff_finalized is the real "I'm done" signal.
+  if (t.status === "submitted" && !t.staffFinalized) return <span className="badge badge-blue">Enter your time</span>;
+  if (t.status === "submitted" && t.staffFinalized) return <span className="badge badge-green">Final ✓ — pending approval</span>;
   if (t.status === "approved")  return <span className="badge badge-green">Approved</span>;
   if (t.status === "rejected")  return <span className="badge badge-red">Rejected</span>;
   return <span className="badge">{t.status}</span>;
@@ -21,11 +24,13 @@ function statusBadge(t: StaffTimesheet) {
 export default function TimesheetsPage() {
   const router = useRouter();
   const [timesheets, setTimesheets] = useState<StaffTimesheet[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    setUserId(user.id);
     const profile = await getProfile(user.id);
     const ts = await getMyTimesheets(user.id, profile?.employeeKey ?? null);
     setTimesheets(ts);
@@ -94,7 +99,9 @@ export default function TimesheetsPage() {
                           Edit
                         </button>
                       )}
-                      {t.status === "submitted" && (
+                      {/* Delete only own, unattached exception entries — never a
+                          record that's on a job timesheet (timesheetId set). */}
+                      {t.status === "submitted" && t.userId === userId && !t.timesheetId && (
                         <button
                           className="danger"
                           style={{ padding: "4px 10px", fontSize: 12 }}
