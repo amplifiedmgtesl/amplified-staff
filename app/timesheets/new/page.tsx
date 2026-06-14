@@ -6,9 +6,9 @@ import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
 import {
   getProfile, getEmployee, getMyAssignments, getPositions, getSpecialties,
-  getJobShifts, createStaffEntry,
+  getJobShifts, getMyTimesheets, createStaffEntry,
 } from "@/lib/db";
-import type { AssignmentOption, PositionOption, SpecialtyOption, ShiftOption } from "@/lib/types";
+import type { AssignmentOption, PositionOption, SpecialtyOption, ShiftOption, StaffTimesheet } from "@/lib/types";
 import { computeTimeEntry } from "@/lib/calc/timekeeping";
 import { resolveEntryRates } from "@/lib/calc/rate-resolution";
 import { timeOptions5Min, MEAL_BREAK_OPTIONS } from "@/lib/time-calc";
@@ -28,6 +28,7 @@ export default function NewTimesheetPage() {
   const [positions, setPositions] = useState<PositionOption[]>([]);
   const [specialties, setSpecialties] = useState<SpecialtyOption[]>([]);
   const [shifts, setShifts] = useState<ShiftOption[]>([]);
+  const [existing, setExisting] = useState<StaffTimesheet[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [form, setForm] = useState({
@@ -61,12 +62,14 @@ export default function NewTimesheetPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const p = await getProfile(user.id);
-      const [emp, asg, pos, spec] = await Promise.all([
+      const [emp, asg, pos, spec, mine] = await Promise.all([
         p?.employeeKey ? getEmployee(p.employeeKey) : Promise.resolve(null),
         p?.employeeKey ? getMyAssignments(p.employeeKey) : Promise.resolve([]),
         getPositions(),
         getSpecialties(),
+        getMyTimesheets(user.id, p?.employeeKey ?? null),
       ]);
+      setExisting(mine);
       if (p) {
         setProfile({
           firstName: emp?.firstName || (p.fullName.trim().split(" ")[0] ?? ""),
@@ -145,6 +148,12 @@ export default function NewTimesheetPage() {
   });
   const crossesMidnight = !!preview.endDate && preview.endDate !== form.workDate;
   const hasHours = preview.totalHours > 0;
+
+  // Duplicate guard: a planned/own entry already exists for this job + day + shift.
+  // Non-blocking — "create new" is the exception path (reassignment / extra shift).
+  const duplicateOf = form.jobId
+    ? existing.find((e) => e.jobId === form.jobId && e.workDate === form.workDate && (e.shiftId || "") === (form.shiftId || ""))
+    : undefined;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -337,6 +346,13 @@ export default function NewTimesheetPage() {
               <label style={{ fontSize: 13, color: "var(--muted)", display: "block", marginBottom: 4 }}>Notes</label>
               <textarea value={form.notes} onChange={set("notes")} placeholder="Any additional notes…" style={{ minHeight: 60 }} />
             </div>
+
+            {duplicateOf && (
+              <div style={{ fontSize: 13, padding: "10px 14px", background: "#fff7e6", border: "1px solid #e8c980", borderRadius: 8 }}>
+                You already have an entry for this job on {form.workDate || "this day"}{form.shiftId ? " (this shift)" : ""}. Only create a new one if this is an additional or reassigned shift — otherwise{" "}
+                <a onClick={() => router.push(`/timesheets/${duplicateOf.id}/edit`)} style={{ color: "var(--gold-dark)", cursor: "pointer", textDecoration: "underline" }}>edit the existing entry</a>.
+              </div>
+            )}
 
             <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--cream)", border: "1px solid var(--line)", borderRadius: 10, cursor: "pointer", fontSize: 14 }}>
               <input type="checkbox" checked={finalized} onChange={(e) => setFinalized(e.target.checked)} style={{ width: 18, height: 18 }} />

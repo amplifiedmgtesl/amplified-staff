@@ -45,8 +45,40 @@ export default function TimesheetsPage() {
     setTimesheets((prev) => prev.filter((t) => t.id !== id));
   }
 
+  // Shifts that still need the worker's actual time: submitted (planned or own)
+  // and not yet marked final. Most-recent day first.
+  const needsTime = timesheets
+    .filter((t) => t.status === "submitted" && !t.staffFinalized)
+    .sort((a, b) => (b.workDate || "").localeCompare(a.workDate || ""));
+
   return (
     <AppShell title="My Timesheets" subtitle="All your submitted timesheet entries">
+      {!loading && needsTime.length > 0 && (
+        <div className="card" style={{ borderTopColor: "var(--gold)", marginBottom: 16 }}>
+          <h2 className="section-title" style={{ margin: "0 0 12px" }}>
+            ⏰ Shifts needing your time ({needsTime.length})
+          </h2>
+          <p className="muted" style={{ fontSize: 13, margin: "0 0 12px" }}>
+            Enter your actual time, then check &ldquo;I&rsquo;m done&rdquo; so it can be approved.
+          </p>
+          <div className="grid">
+            {needsTime.map((t) => (
+              <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, background: "var(--cream)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px" }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{t.jobName || "—"}</div>
+                  <div className="muted" style={{ fontSize: 13 }}>
+                    {t.workDate || "—"}{t.position ? ` · ${t.position}` : ""}
+                  </div>
+                </div>
+                <button style={{ padding: "6px 14px", fontSize: 13, whiteSpace: "nowrap" }} onClick={() => router.push(`/timesheets/${t.id}/edit`)}>
+                  Enter time
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="action-row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
           <h2 className="section-title" style={{ margin: 0 }}>Timesheet History</h2>

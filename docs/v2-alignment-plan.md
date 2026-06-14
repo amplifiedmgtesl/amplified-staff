@@ -66,11 +66,11 @@ Decisions (2026-06-14):
       IS NULL`) — a sheet-attached planned record can never be deleted from the staff app.
 - [x] List badge: planned record (submitted + no user_id) shows "Scheduled — enter time".
 - [x] `tsc --noEmit` clean.
-- NOTE: "create new" remains for exceptions only. A worker who creates instead of updating could
-  duplicate a planned row — acceptable for now (update is the primary path); a future guard could
-  warn if a planned entry already exists for that (employee, day, shift).
-- TODO (UX, not yet built): a dedicated "today's scheduled shifts — enter your time" view so workers
-  land on their planned records directly rather than scanning the history list.
+- [x] DONE 2026-06-14: **Duplicate guard** on the create page — non-blocking amber warning when a
+  planned/own entry already exists for the selected job + day + shift, with an "edit the existing
+  entry" link. "Create new" still allowed (exception path).
+- [x] DONE 2026-06-14: **"Shifts needing your time" section** at the top of the Timesheets page —
+  lists submitted-and-not-finalized entries (planned or own) with an "Enter time" button → edit.
 
 ## Phase 1.y — staff finalization signal (DONE 2026-06-14)
 Problem: a worker can Save actual time repeatedly; status stays 'submitted' the whole time,
