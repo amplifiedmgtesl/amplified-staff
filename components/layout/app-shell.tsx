@@ -42,7 +42,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
             className={`nav-link${pathname === href || (href !== "/dashboard" && pathname.startsWith(href)) ? " active" : ""}`}
           >
             <span style={{ fontSize: 18, marginRight: 10 }}>{icon}</span>
-            {label === "Submit" ? "Submit Timesheet" : `My ${label === "Home" ? "" : label}`.trim() || "Dashboard"}
+            {label === "Submit" ? "Submit Timesheet" : label === "Home" ? "Dashboard" : `My ${label}`}
           </Link>
         ))}
 
