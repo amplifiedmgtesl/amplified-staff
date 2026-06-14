@@ -109,9 +109,26 @@ export async function getMyTimesheets(userId: string, employeeKey?: string | nul
   if (error) throw error;
   // Deduplicate by id (safety in case both filters match the same row)
   const seen = new Set<string>();
-  return (data ?? [])
+  const entries = (data ?? [])
     .filter((r: any) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; })
     .map(rowToStaffTimesheet);
+
+  // Backfill the display label from the canonical job_id. AOS-created rows
+  // (e.g. "+ Add Crew Member") store job_id but not the denormalized job_name,
+  // which would otherwise show as a blank "Job / Event" in the staff list.
+  const missing = entries.filter((e) => !e.jobName && e.jobId);
+  if (missing.length) {
+    const jobIds = [...new Set(missing.map((e) => e.jobId as string))];
+    const { data: jobs } = await supabase
+      .from("job_requests").select("id, client, event_name").in("id", jobIds);
+    const label = new Map(
+      (jobs ?? []).map((j: any) => [j.id, [j.client, j.event_name].filter(Boolean).join(" — ")]),
+    );
+    for (const e of entries) {
+      if (!e.jobName && e.jobId) e.jobName = label.get(e.jobId) ?? e.jobName;
+    }
+  }
+  return entries;
 }
 
 // Everything the staff form supplies to create/update one entry. Bill rates,
