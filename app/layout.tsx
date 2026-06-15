@@ -2,6 +2,7 @@ import "./globals.css";
 import type { ReactNode } from "react";
 import { AuthProvider } from "../components/layout/auth-provider";
 import { EnvBanner } from "../components/layout/env-banner";
+import { UpdateBanner } from "../components/layout/update-banner";
 
 export const metadata = {
   title: "Amplified Staff Portal",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <EnvBanner />
+        <UpdateBanner />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
