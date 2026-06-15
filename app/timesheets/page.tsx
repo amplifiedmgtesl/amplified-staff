@@ -5,21 +5,9 @@ import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
 import { getMyTimesheets, deleteStaffTimesheet, getProfile } from "@/lib/db";
 import type { StaffTimesheet } from "@/lib/types";
+import { staffStatusBadge } from "@/components/status-badge";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-
-function statusBadge(t: StaffTimesheet) {
-  // Admin-created entries: timesheetId set, no status → "On Record"
-  if (!t.status && t.timesheetId) return <span className="badge badge-green">On Record</span>;
-  if (!t.status) return <span className="badge">Pending</span>;
-  // 'submitted' is the working state for both planned rows and worker entries.
-  // staff_finalized is the real "I'm done" signal.
-  if (t.status === "submitted" && !t.staffFinalized) return <span className="badge badge-blue">Enter your time</span>;
-  if (t.status === "submitted" && t.staffFinalized) return <span className="badge badge-green">Final ✓ — pending approval</span>;
-  if (t.status === "approved")  return <span className="badge badge-green">Approved</span>;
-  if (t.status === "rejected")  return <span className="badge badge-red">Rejected</span>;
-  return <span className="badge">{t.status}</span>;
-}
 
 export default function TimesheetsPage() {
   const router = useRouter();
@@ -119,7 +107,7 @@ export default function TimesheetsPage() {
                   <td>{t.otHours > 0 ? t.otHours.toFixed(1) : "—"}</td>
                   <td>{t.dtHours > 0 ? t.dtHours.toFixed(1) : "—"}</td>
                   <td><strong>{t.totalHours.toFixed(1)}</strong></td>
-                  <td>{statusBadge(t)}</td>
+                  <td>{staffStatusBadge(t)}</td>
                   <td>
                     <div className="action-row">
                       {t.status !== "approved" && t.status !== "rejected" && (

@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { supabase } from "@/lib/supabase/client";
 import { getProfile, getMyTimesheets, getMySchedule } from "@/lib/db";
 import type { Profile, ScheduledJob, StaffTimesheet } from "@/lib/types";
+import { staffStatusBadge } from "@/components/status-badge";
 import Link from "next/link";
 
 export default function DashboardPage() {
@@ -19,8 +20,11 @@ export default function DashboardPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const [p, ts] = await Promise.all([getProfile(user.id), getMyTimesheets(user.id)]);
+      const p = await getProfile(user.id);
       setProfile(p);
+      // Pass employeeKey so planned (admin-created) rows are included — the
+      // "Needs your time" count depends on them.
+      const ts = await getMyTimesheets(user.id, p?.employeeKey ?? null);
       setTimesheets(ts);
       if (p?.employeeKey) {
         const jobs = await getMySchedule(p.employeeKey);
@@ -32,7 +36,11 @@ export default function DashboardPage() {
   }, []);
 
   const recent = timesheets.slice(0, 5);
-  const submitted = timesheets.filter((t) => t.status === "submitted").length;
+  // Finalized-aware buckets. 'submitted' alone is ambiguous (planned rows AND
+  // worker submissions share it); staff_finalized splits "needs your time" from
+  // "done, waiting on approval".
+  const needsTime = timesheets.filter((t) => t.status === "submitted" && !t.staffFinalized).length;
+  const awaitingApproval = timesheets.filter((t) => t.status === "submitted" && t.staffFinalized).length;
   const approved = timesheets.filter((t) => t.status === "approved").length;
 
   return (
@@ -51,12 +59,12 @@ export default function DashboardPage() {
 
           <div className="grid3">
             <div className="metric-card">
-              <div className="metric-label">Total Submitted</div>
-              <div className="metric-value">{timesheets.length}</div>
+              <div className="metric-label">Needs your time</div>
+              <div className="metric-value">{needsTime}</div>
             </div>
             <div className="metric-card">
-              <div className="metric-label">Pending Review</div>
-              <div className="metric-value">{submitted}</div>
+              <div className="metric-label">Awaiting approval</div>
+              <div className="metric-value">{awaitingApproval}</div>
             </div>
             <div className="metric-card">
               <div className="metric-label">Approved</div>
@@ -111,11 +119,7 @@ export default function DashboardPage() {
                       <td>{t.jobName || "—"}</td>
                       <td>{t.position || "—"}</td>
                       <td>{t.totalHours.toFixed(1)}</td>
-                      <td>
-                        <span className={`badge ${t.status === "approved" ? "badge-green" : t.status === "rejected" ? "badge-red" : "badge-blue"}`}>
-                          {t.status}
-                        </span>
-                      </td>
+                      <td>{staffStatusBadge(t)}</td>
                     </tr>
                   ))}
                 </tbody>
