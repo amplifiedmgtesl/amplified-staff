@@ -41,7 +41,7 @@ export default function EditTimesheetPage() {
     notes: "",
   });
   const [finalized, setFinalized] = useState(false);
-  const [rates, setRates] = useState({ billStdRate: 35, billOtRate: 52, billDtRate: 70, billOtAfter: null as number | null, billDtAfter: null as number | null });
+  const [rates, setRates] = useState({ billStdRate: 0, billOtRate: 0, billDtRate: 0, billOtAfter: null as number | null, billDtAfter: null as number | null });
 
   useEffect(() => {
     async function load() {
