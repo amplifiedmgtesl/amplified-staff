@@ -50,7 +50,7 @@ export default function NewTimesheetPage() {
   });
   // Bill-rate snapshot for the current (job, specialty) — used for the live hours
   // preview and re-resolved authoritatively at save time.
-  const [rates, setRates] = useState({ billStdRate: 35, billOtRate: 52, billDtRate: 70, billOtAfter: null as number | null, billDtAfter: null as number | null });
+  const [rates, setRates] = useState({ billStdRate: 0, billOtRate: 0, billDtRate: 0, billOtAfter: null as number | null, billDtAfter: null as number | null });
   const [finalized, setFinalized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
